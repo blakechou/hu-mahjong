@@ -74,6 +74,12 @@ export class TableView {
     });
     this.handGroup = new THREE.Group();
     this.hud.add(this.handGroup);
+    // 教學提示：建議打的那張上方的金色小箭頭
+    this.hintMarker = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.34, 3), new THREE.MeshBasicMaterial({ color: 0xffc23d }));
+    this.hintMarker.rotation.x = Math.PI;
+    this.hintMarker.visible = false;
+    this.hud.add(this.hintMarker);
+    this.hintTile = null;
 
     // 最後打出的牌上方的小指標
     this.marker = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.45, 4), new THREE.MeshBasicMaterial({ color: 0xff4a3d }));
@@ -347,7 +353,16 @@ export class TableView {
         x += tw;
       });
     });
+    // 建議打的牌：同一種牌有好幾張時，指最右邊那張
+    const hm = this.hintTile == null ? null : [...this.handTiles].reverse().find(m => m.userData.tile === this.hintTile);
+    this.hintMarker.visible = !!hm && this.interactive;
+    if (hm) {
+      this.hintMarker.scale.setScalar(tw);
+      this.hintMarker.position.set(hm.position.x, hm.position.y + TH * tw * 0.5 + tw * 0.32, 100);
+    }
   }
+
+  setHint(tile) { this.hintTile = tile; this.layoutHand(); }
 
   /** 讓玩家可以點牌（allowedTiles：可以打的牌，null 表示都可以） */
   setInteractive(on, allowedTiles = null) {
@@ -429,6 +444,7 @@ export class TableView {
       this.lastDiscardMesh.getWorldPosition(p);
       this.marker.position.set(p.x, p.y + 1.1 + Math.sin(now / 220) * 0.15, p.z);
     }
+    if (this.hintMarker.visible) this.hintMarker.rotation.y = now / 500;
     const r = this.renderer;
     r.clear();
     r.render(this.scene, this.camera);

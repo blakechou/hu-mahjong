@@ -118,3 +118,86 @@ body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit
 .rank { list-style: none; padding: 0; margin: 14px 0 20px; }
 .rank li { display: flex; justify-content: space-between; padding: 10px 14px; border-radius: 10px; margin-bottom: 6px; background: #efe2c2; font-size: 18px; }
 .rank li.first { background: var(--gold); font-weight: 900; }
+
+/* 角色說話 */
+.say {
+  position: absolute; left: 50%; top: calc(100% + 10px); transform: translate(-50%, -4px);
+  width: max-content; max-width: min(240px, 60vw); white-space: normal;
+  background: #fffaf0; color: var(--ink); font-size: 14px; line-height: 1.4; font-weight: 500;
+  padding: 7px 11px; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.45);
+  opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; z-index: 5;
+}
+.say::before {
+  content: ''; position: absolute; left: 50%; top: -6px; transform: translateX(-50%) rotate(45deg);
+  width: 12px; height: 12px; background: #fffaf0;
+}
+.say.show { opacity: 1; transform: translate(-50%, 0); }
+.tag.seat0 .say { display: none; }
+
+/* 教學提示列 */
+.coachbar {
+  position: absolute; left: 50%; bottom: calc(var(--hand-h) + 44px); transform: translateX(-50%);
+  max-width: calc(100vw - 24px); width: max-content;
+  background: rgba(255, 236, 180, 0.95); color: var(--ink); font-size: 14px; font-weight: 500;
+  padding: 5px 12px; border-radius: 10px; border: 1.5px solid var(--gold);
+  opacity: 0; transition: opacity .15s; pointer-events: none;
+}
+.coachbar.show { opacity: 1; }
+.coachbar b { color: var(--red); }
+.coachbar .warn { color: var(--red); font-weight: 700; }
+
+/* 圓形小按鈕 */
+.iconbtn {
+  position: absolute; width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid rgba(232,182,74,.6);
+  background: rgba(30,16,8,.8); color: var(--cream); font-size: 20px; cursor: pointer; pointer-events: auto;
+  display: grid; place-items: center; padding: 0;
+}
+.iconbtn.hidden { display: none; }
+.gear { top: max(8px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); }
+.sticker-btn { left: 12px; bottom: calc(var(--hand-h) + 58px); }
+.sticker-btn.cool { opacity: .4; }
+
+.panel {
+  position: absolute; pointer-events: auto; background: var(--cream); color: var(--ink);
+  border-radius: 14px; padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); border: 2px solid var(--red);
+}
+.panel.hidden { display: none; }
+.settings { top: 56px; right: 10px; width: min(300px, calc(100vw - 20px)); }
+.settings h3 { margin: 0 0 8px; font-family: var(--serif); }
+.settings label { display: block; padding: 8px 0; border-bottom: 1px dashed #c9b48a; font-weight: 700; cursor: pointer; }
+.settings label small { display: block; font-weight: 400; color: #6b5640; margin-left: 24px; }
+.settings .btn { margin-top: 10px; width: 100%; font-size: 16px; padding: 8px; }
+.stickers { left: 12px; bottom: calc(var(--hand-h) + 104px); width: min(320px, calc(100vw - 24px)); }
+.stickers .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.stk {
+  border: none; border-radius: 10px; background: #efe2c2; padding: 8px 6px; font-size: 14px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; gap: 6px; font-family: var(--sans); color: var(--ink);
+}
+.stk span { font-size: 20px; }
+.stk.on { background: var(--gold); }
+.targets { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.targets.hidden { display: none; }
+.targets .btn { font-size: 15px; padding: 6px 12px; }
+
+/* 飛行中的貼圖 */
+.flying {
+  position: absolute; transform: translate(-50%, -50%) scale(.6); z-index: 20; pointer-events: none;
+  background: #fff3c8; color: var(--red); border: 2.5px solid var(--red); border-radius: 14px;
+  padding: 6px 12px; font-family: var(--serif); font-weight: 900; font-size: 18px; white-space: nowrap;
+  display: flex; align-items: center; gap: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.5);
+  transition: left .6s cubic-bezier(.4,0,.3,1), top .6s cubic-bezier(.3,-.6,.5,1), transform .6s;
+}
+.flying span { font-size: 26px; }
+.flying.go { transform: translate(-50%, -50%) scale(1) rotate(-6deg); }
+.flying.land { animation: stamp .35s ease-out, fade 1.8s ease-in forwards; }
+@keyframes stamp { 0% { transform: translate(-50%,-50%) scale(1.5) rotate(-6deg); } 100% { transform: translate(-50%,-50%) scale(1) rotate(-6deg); } }
+@keyframes fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+.btn small.good { color: #1f7a3a; }
+.btn small.meh { color: #8a6a3a; }
+/* 左右兩家的台詞框往桌子內側長，才不會被螢幕切掉 */
+.tag.seat1 .say { left: auto; right: 0; transform: translateY(-4px); }
+.tag.seat1 .say.show { transform: none; }
+.tag.seat1 .say::before { left: auto; right: 22px; transform: rotate(45deg); }
+.tag.seat3 .say { left: 0; transform: translateY(-4px); }
+.tag.seat3 .say.show { transform: none; }
+.tag.seat3 .say::before { left: 22px; transform: rotate(45deg); }

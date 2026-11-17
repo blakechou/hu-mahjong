@@ -1,5 +1,13 @@
 // 畫面上的 HTML 介面：名牌、動作按鈕、喊聲泡泡、結算
 import { tileName } from '../core/tiles.js';
+import { STICKERS } from '../game/lines.js';
+
+const SETTINGS_KEY = 'hu-mahjong-settings';
+export function loadSettings() {
+  const def = { coach: true, talk: true, stickers: true };
+  try { return { ...def, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch (e) { return def; }
+}
+function saveSettings(v) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(v)); } catch (e) { /* 無痕模式存不了就算了 */ } }
 
 const $ = sel => document.querySelector(sel);
 const WIND = '東南西北';
@@ -15,9 +23,24 @@ export class Hud {
           <span class="who"><b class="name">${names[k]}</b><span class="score">0</span></span>
           <span class="badge"></span>
           <div class="bubble"></div>
+          <div class="say"></div>
         </div>`).join('')}
       </div>
       <div class="topbar"><span class="label"></span></div>
+      <button class="iconbtn gear" title="設定">⚙</button>
+      <div class="panel settings hidden">
+        <h3>設定</h3>
+        <label><input type="checkbox" data-k="coach"> 教學提示 <small>建議打哪張、聽哪幾張、危險牌</small></label>
+        <label><input type="checkbox" data-k="talk"> 角色台詞</label>
+        <label><input type="checkbox" data-k="stickers"> 嗆聲貼圖</label>
+        <button class="btn close">好</button>
+      </div>
+      <button class="iconbtn sticker-btn" title="嗆聲">💬</button>
+      <div class="panel stickers hidden">
+        <div class="grid">${STICKERS.map(st => `<button class="stk" data-id="${st.id}"><span>${st.icon}</span>${st.text}</button>`).join('')}</div>
+        <div class="targets hidden"><span>丟給：</span>${[1, 2, 3].map(k => `<button class="btn tgt" data-seat="${k}">${names[k]}</button>`).join('')}</div>
+      </div>
+      <div class="coachbar"></div>
       <div class="tip"></div>
       <div class="actions"></div>
       <div class="modal result hidden"></div>
@@ -38,6 +61,94 @@ export class Hud {
     this.tipEl = root.querySelector('.tip');
     this.resultEl = root.querySelector('.result');
     this.titleEl = root.querySelector('.title');
+    this.coachEl = root.querySelector('.coachbar');
+    this.settings = loadSettings();
+    this.bindSettings();
+    this.bindStickers();
+  }
+
+  bindSettings() {
+    const panel = this.root.querySelector('.settings');
+    const boxes = [...panel.querySelectorAll('input')];
+    boxes.forEach(b => { b.checked = !!this.settings[b.dataset.k]; });
+    this.root.querySelector('.gear').onclick = () => panel.classList.toggle('hidden');
+    panel.querySelector('.close').onclick = () => panel.classList.add('hidden');
+    boxes.forEach(b => b.onchange = () => {
+      this.settings[b.dataset.k] = b.checked;
+      saveSettings(this.settings);
+      this.applySettings();
+      this.onSettings?.(this.settings);
+    });
+    this.applySettings();
+  }
+
+  applySettings() {
+    this.root.querySelector('.sticker-btn').classList.toggle('hidden', !this.settings.stickers);
+    if (!this.settings.coach) this.coach('');
+  }
+
+  bindStickers() {
+    const btn = this.root.querySelector('.sticker-btn');
+    const panel = this.root.querySelector('.stickers');
+    const targets = panel.querySelector('.targets');
+    let chosen = null;
+    btn.onclick = () => {
+      if (btn.disabled) return;
+      chosen = null;
+      targets.classList.add('hidden');
+      panel.querySelectorAll('.stk').forEach(b => b.classList.remove('on'));
+      panel.classList.toggle('hidden');
+    };
+    panel.querySelectorAll('.stk').forEach(b => b.onclick = () => {
+      chosen = STICKERS.find(x => x.id === b.dataset.id);
+      panel.querySelectorAll('.stk').forEach(x => x.classList.toggle('on', x === b));
+      targets.classList.remove('hidden');
+    });
+    panel.querySelectorAll('.tgt').forEach(b => b.onclick = () => {
+      if (!chosen) return;
+      panel.classList.add('hidden');
+      const to = Number(b.dataset.seat);
+      this.throwSticker(0, to, chosen);
+      this.onSticker?.(to, chosen);
+      // 冷卻 5 秒
+      btn.disabled = true;
+      btn.classList.add('cool');
+      setTimeout(() => { btn.disabled = false; btn.classList.remove('cool'); }, 5000);
+    });
+  }
+
+  /** 貼圖從 from 的名牌飛到 to 的名牌 */
+  throwSticker(from, to, st) {
+    const a = this.tags[from].getBoundingClientRect();
+    const b = this.tags[to].getBoundingClientRect();
+    const el = document.createElement('div');
+    el.className = 'flying';
+    el.innerHTML = `<span>${st.icon}</span>${st.text}`;
+    el.style.left = `${a.left + a.width / 2}px`;
+    el.style.top = `${a.top + a.height / 2}px`;
+    this.root.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.style.left = `${b.left + b.width / 2}px`;
+      el.style.top = `${b.top + b.height / 2}px`;
+      el.classList.add('go');
+    }));
+    setTimeout(() => el.classList.add('land'), 620);
+    setTimeout(() => el.remove(), 2400);
+  }
+
+  /** 角色說話（名牌下方的對話框） */
+  say(seat, text) {
+    const b = this.tags[seat].querySelector('.say');
+    b.textContent = text;
+    b.classList.add('show');
+    clearTimeout(b._t);
+    b._t = setTimeout(() => b.classList.remove('show'), 1600 + text.length * 120);
+  }
+
+  /** 教學提示列（手牌上方，常駐） */
+  coach(html) {
+    this.coachEl.innerHTML = html || '';
+    this.coachEl.classList.toggle('show', !!html);
   }
 
   onStart(fn) {
