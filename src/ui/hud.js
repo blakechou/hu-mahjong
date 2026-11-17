@@ -1,10 +1,14 @@
 // 畫面上的 HTML 介面：名牌、動作按鈕、喊聲泡泡、結算
 import { tileName } from '../core/tiles.js';
 import { STICKERS } from '../game/lines.js';
+import { portraitSVG } from './portraits.js';
+import { SCENES } from '../view3d/scenes.js';
+import { SKINS } from '../view3d/skins.js';
+import { Confetti } from './effects.js';
 
 const SETTINGS_KEY = 'hu-mahjong-settings';
 export function loadSettings() {
-  const def = { coach: true, talk: true, stickers: true };
+  const def = { coach: true, talk: true, stickers: true, sound: true, scene: 'shop', skin: 'jade' };
   try { return { ...def, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch (e) { return def; }
 }
 function saveSettings(v) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(v)); } catch (e) { /* 無痕模式存不了就算了 */ } }
@@ -13,12 +17,14 @@ const $ = sel => document.querySelector(sel);
 const WIND = '東南西北';
 
 export class Hud {
-  constructor(root, names) {
+  constructor(root, names, faces = []) {
     this.root = root;
     this.names = names;
+    this.faces = faces;
     root.innerHTML = `
       <div class="tags">${[0, 1, 2, 3].map(k => `
-        <div class="tag seat${k}" data-seat="${k}">
+        <div class="tag seat${k}${faces[k] ? ' has-face' : ''}" data-seat="${k}">
+          ${faces[k] ? `<span class="face">${portraitSVG(faces[k])}</span>` : ''}
           <span class="wind"></span>
           <span class="who"><b class="name">${names[k]}</b><span class="score">0</span></span>
           <span class="badge"></span>
@@ -33,6 +39,9 @@ export class Hud {
         <label><input type="checkbox" data-k="coach"> 教學提示 <small>建議打哪張、聽哪幾張、危險牌</small></label>
         <label><input type="checkbox" data-k="talk"> 角色台詞</label>
         <label><input type="checkbox" data-k="stickers"> 嗆聲貼圖</label>
+        <label><input type="checkbox" data-k="sound"> 音效</label>
+        <div class="pick"><span>場景</span>${SCENES.map(x => `<button data-k="scene" data-v="${x.id}">${x.name}</button>`).join('')}</div>
+        <div class="pick"><span>牌背</span>${SKINS.map(x => `<button data-k="skin" data-v="${x.id}"><i style="background:${x.color}"></i>${x.name}</button>`).join('')}</div>
         <button class="btn close">好</button>
       </div>
       <button class="iconbtn sticker-btn" title="嗆聲">💬</button>
@@ -73,13 +82,19 @@ export class Hud {
     boxes.forEach(b => { b.checked = !!this.settings[b.dataset.k]; });
     this.root.querySelector('.gear').onclick = () => panel.classList.toggle('hidden');
     panel.querySelector('.close').onclick = () => panel.classList.add('hidden');
-    boxes.forEach(b => b.onchange = () => {
-      this.settings[b.dataset.k] = b.checked;
+    const commit = () => {
       saveSettings(this.settings);
       this.applySettings();
       this.onSettings?.(this.settings);
-    });
+    };
+    boxes.forEach(b => b.onchange = () => { this.settings[b.dataset.k] = b.checked; commit(); });
+    const picks = [...panel.querySelectorAll('.pick button')];
+    const mark = () => picks.forEach(b => b.classList.toggle('on', this.settings[b.dataset.k] === b.dataset.v));
+    picks.forEach(b => b.onclick = () => { this.settings[b.dataset.k] = b.dataset.v; mark(); commit(); });
+    mark();
     this.applySettings();
+    // 所有按鈕都有點擊聲
+    this.root.addEventListener('click', e => { if (e.target.closest('button')) this.onUi?.('click'); });
   }
 
   applySettings() {
@@ -132,8 +147,30 @@ export class Hud {
       el.style.top = `${b.top + b.height / 2}px`;
       el.classList.add('go');
     }));
-    setTimeout(() => el.classList.add('land'), 620);
+    this.onUi?.('whoosh');
+    setTimeout(() => { el.classList.add('land'); this.onUi?.('pop'); }, 620);
     setTimeout(() => el.remove(), 2400);
+  }
+
+  /** 換表情；ms 之後回到平常（0 表示不回復） */
+  setExpr(seat, expr, ms = 3200) {
+    const id = this.faces[seat];
+    if (!id) return;
+    const el = this.tags[seat].querySelector('.face');
+    if (el.dataset.expr !== expr) { el.innerHTML = portraitSVG(id, expr); el.dataset.expr = expr; }
+    el.classList.remove('bounce'); void el.offsetWidth; el.classList.add('bounce');
+    clearTimeout(el._t);
+    if (ms) el._t = setTimeout(() => this.setExpr(seat, 'normal', 0), ms);
+  }
+
+  resetExpr() { [1, 2, 3].forEach(k => this.setExpr(k, 'normal', 0)); }
+
+  /** 在某家名牌的位置噴紙屑 */
+  celebrate(seat, big) {
+    if (!this.confetti) this.confetti = new Confetti(this.root);
+    const r = this.tags[seat].getBoundingClientRect();
+    this.confetti.burst(r.left + r.width / 2, r.top + r.height / 2, big ? 160 : 90);
+    if (big) setTimeout(() => this.confetti.burst(window.innerWidth / 2, window.innerHeight * 0.45, 120), 250);
   }
 
   /** 角色說話（名牌下方的對話框） */

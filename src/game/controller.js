@@ -5,6 +5,7 @@ import { shanten } from '../core/hand.js';
 import { decideTurn, decideClaim } from '../ai/ai.js';
 import { SEAT_PERSONAS } from '../ai/personas.js';
 import { LinePicker, STICKERS } from './lines.js';
+import { sfx } from '../ui/audio.js';
 import { discardAdvice, describeDiscard, currentWaits, shantenAfterCall, shantenText } from './coach.js';
 
 export const NAMES = ['你', '阿伯', '阿珠姨', '林老師'];
@@ -18,6 +19,12 @@ const IDLE_SECOND = 35000;
 const DANGER_COOLDOWN = 12000;
 
 const MELD_SHOUT = { chi: '吃！', pon: '碰！', minkan: '槓！', kakan: '槓！', ankan: '暗槓！' };
+// 情境 → 表情；結算類的表情維持到下一局
+const EXPR = {
+  start: 'normal', call: 'proud', tenpai: 'proud', tsumo: 'laugh', ron: 'laugh', dealIn: 'upset',
+  otherWin: 'upset', draw: 'normal', idle: 'normal', taunted: 'upset', danger: 'nervous', praise: 'proud',
+};
+const STICKY = new Set(['tsumo', 'ron', 'dealIn', 'otherWin']);
 const pickOne = arr => arr[Math.floor(Math.random() * arr.length)];
 
 export class Game {
@@ -48,6 +55,8 @@ export class Game {
     this.round.on(ev => { if (token === this.token) this.onEvent(ev); });
     this.view.lastKey = '';
     this.lines.reset();
+    this.hud.resetExpr();
+    sfx.shuffle();
     this.aiTenpai = [false, false, false, false];
     this.praised = false;
     this.round.start();
@@ -65,7 +74,13 @@ export class Game {
 
   // ---------- 台詞 ----------
   talk(seat, situation, { prob = 1, delay = 0, force = false } = {}) {
-    if (!this.settings.talk || seat === ME) return;
+    if (seat === ME) return;
+    const expr = situation === 'taunted' && SEAT_PERSONAS[seat].id !== 'azhu' ? (Math.random() < 0.5 ? 'proud' : 'upset') : EXPR[situation];
+    if (expr && (force || STICKY.has(situation) || prob >= 0.5)) {
+      const token = this.token;
+      setTimeout(() => { if (token === this.token || situation === 'taunted') this.hud.setExpr(seat, expr, STICKY.has(situation) ? 0 : 3200); }, delay);
+    }
+    if (!this.settings.talk) return;
     if (Math.random() > prob) return;
     const now = performance.now();
     if (!force && now < this.talkBusyUntil) return;
@@ -82,13 +97,25 @@ export class Game {
 
   onEvent(ev) {
     switch (ev.type) {
-      case 'meld':
+      case 'discard':
+        sfx.discard();
+        break;
+      case 'draw':
+        if (ev.seat === ME) sfx.draw();
+        break;
+      case 'meld': {
         this.hud.shout(ev.seat, MELD_SHOUT[ev.meld.type]);
+        sfx.call(ev.meld.tiles.length);
+        // 有人副露到 3 組以上，其他街坊會緊張
+        const open = this.round.players[ev.seat].melds.filter(m => m.type !== 'ankan').length;
+        if (open >= 3) AI_SEATS.filter(k => k !== ev.seat && !this.aiTenpai[k]).forEach(k => this.hud.setExpr(k, 'nervous'));
+      }
         this.pauseUntil = performance.now() + AFTER_CALL_DELAY;
         if (ev.seat !== ME) this.talk(ev.seat, 'call', { prob: SEAT_PERSONAS[ev.seat].id === 'azhu' ? 0.85 : 0.45, delay: 250 });
         break;
       case 'flower':
         this.hud.shout(ev.seat, '補花');
+        sfx.flower();
         break;
       case 'kakanDeclare':
         this.hud.shout(ev.seat, '槓！');
@@ -102,10 +129,15 @@ export class Game {
   onRoundEnd(r) {
     if (r.type !== 'win') {
       for (let k = 0; k < 4; k++) this.hud.shout(k, '流局');
+      sfx.drawGame();
       this.talk(pickOne(AI_SEATS), 'draw', { force: true, delay: 500 });
       return;
     }
     this.hud.shout(r.winner, r.special || (r.selfDraw ? '自摸！' : '胡！'), 'big');
+    this.hud.celebrate(r.winner, r.winner === ME);
+    if (r.winner === ME) sfx.win(true);
+    else if (r.from === ME) { sfx.win(false); setTimeout(() => sfx.lose(), 900); }
+    else sfx.win(false);
     if (r.winner !== ME) this.talk(r.winner, r.selfDraw ? 'tsumo' : 'ron', { force: true, delay: 300 });
     if (r.from != null && r.from !== ME) {
       this.talk(r.from, 'dealIn', { force: true, delay: 1400 });
@@ -188,6 +220,7 @@ export class Game {
     this.hud.tip(buttons.length ? '' : '輪到你出牌');
     this.canTsumo = acts.some(a => a.type === 'tsumo');
     this.advice = discardAdvice(r, ME);
+    sfx.yourTurn();
     this.refreshCoach();
     this.startIdle();
   }

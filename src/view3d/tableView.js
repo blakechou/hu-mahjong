@@ -1,40 +1,59 @@
 // 3D 牌桌：主場景（透視鏡頭看整張桌子）＋ 手牌層（正交鏡頭固定在畫面下方，手機也好點）
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { faceTexture, FONT } from './tileFaces.js';
+import { SKINS, backTexture } from './skins.js';
+import { buildScene } from './scenes.js';
 
 export const TW = 1, TH = 1.35, TD = 0.78;
 const FRONT_D = 0.5, BACK_D = TD - FRONT_D;
 const LIE_Y = TD / 2;
 const WIND_CH = '東南西北';
 
-const geoFront = new THREE.BoxGeometry(TW, TH, FRONT_D);
-const geoBack = new THREE.BoxGeometry(TW, TH, BACK_D);
+// 牌：前半象牙白、後半牌背顏色，都是圓角；牌面與牌背花紋是貼在表面的薄片
+const R = 0.09;
+const geoFront = new RoundedBoxGeometry(TW, TH, FRONT_D, 2, R);
+const geoBack = new RoundedBoxGeometry(TW, TH, BACK_D, 2, R);
+const geoFace = new THREE.PlaneGeometry(TW - 2 * R + 0.02, TH - 2 * R + 0.02);
 const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xf1e9d2, roughness: 0.42 });
-let backMat = new THREE.MeshStandardMaterial({ color: 0x1f7a55, roughness: 0.35 });
+const backMat = new THREE.MeshStandardMaterial({ color: 0x1f7a55, roughness: 0.35 });
+const backFaceMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 });
 const faceMats = new Map();
 
 function faceMat(t, renderer) {
-  const k = t == null ? 'blank' : t;
-  if (!faceMats.has(k)) faceMats.set(k, new THREE.MeshStandardMaterial({ map: faceTexture(t, renderer), roughness: 0.4 }));
-  return faceMats.get(k);
+  if (!faceMats.has(t)) faceMats.set(t, new THREE.MeshStandardMaterial({ map: faceTexture(t, renderer), roughness: 0.4 }));
+  return faceMats.get(t);
 }
 
-/** 一張牌：前半象牙白（+z 面是牌面）、後半是牌背顏色 */
 export function makeTile(t, renderer) {
   const g = new THREE.Group();
-  const fm = faceMat(t, renderer);
-  const front = new THREE.Mesh(geoFront, [ivoryMat, ivoryMat, ivoryMat, ivoryMat, fm, ivoryMat]);
+  const front = new THREE.Mesh(geoFront, ivoryMat);
   front.position.z = TD / 2 - FRONT_D / 2;
   const back = new THREE.Mesh(geoBack, backMat);
   back.position.z = -TD / 2 + BACK_D / 2;
+  const bf = new THREE.Mesh(geoFace, backFaceMat);
+  bf.position.z = -TD / 2 - 0.002;
+  bf.rotation.y = Math.PI;
   front.castShadow = back.castShadow = true;
   front.receiveShadow = back.receiveShadow = true;
-  g.add(front, back);
+  g.add(front, back, bf);
+  if (t != null) {
+    const face = new THREE.Mesh(geoFace, faceMat(t, renderer));
+    face.position.z = TD / 2 + 0.002;
+    g.add(face);
+  }
   g.userData.tile = t;
   return g;
 }
 
-export function setBackColor(hex) { backMat.color.set(hex); }
+/** 換牌背 */
+export function setSkin(id) {
+  const s = SKINS.find(x => x.id === id) || SKINS[0];
+  backMat.color.set(s.color);
+  backFaceMat.map = backTexture(s.id);
+  backFaceMat.needsUpdate = true;
+}
+setSkin('jade');
 
 function canvasTexture(w, h, draw) {
   const cv = document.createElement('canvas');
@@ -66,6 +85,7 @@ export class TableView {
 
     this.buildLights();
     this.buildTable();
+    this.setScene('shop');
     this.seatGroups = [0, 1, 2, 3].map(k => {
       const g = new THREE.Group();
       g.rotation.y = k * Math.PI / 2;
@@ -104,7 +124,12 @@ export class TableView {
   }
 
   buildLights() {
-    this.scene.add(new THREE.HemisphereLight(0xfff3dd, 0x3a2a1e, 1.1));
+    this.hemi = new THREE.HemisphereLight(0xfff3dd, 0x3a2a1e, 1.1);
+    this.scene.add(this.hemi);
+    // 桌子上方的燈泡（暖色）
+    this.warm = new THREE.PointLight(0xffc27a, 60, 40, 1.4);
+    this.warm.position.set(0, 13, 0);
+    this.scene.add(this.warm);
     const d = new THREE.DirectionalLight(0xffffff, 1.6);
     d.position.set(-6, 18, 10);
     d.castShadow = true;
@@ -146,10 +171,17 @@ export class TableView {
       b.castShadow = b.receiveShadow = true;
       this.scene.add(g);
     }
-    // 桌腳下的地板
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), new THREE.MeshStandardMaterial({ color: 0x3a2618, roughness: 1 }));
-    floor.rotation.x = -Math.PI / 2; floor.position.y = -6;
-    this.scene.add(floor);
+    // 桌板厚度與桌腳
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(23.6, 0.9, 23.6), wood);
+    slab.position.y = -0.46;
+    slab.receiveShadow = true;
+    this.scene.add(slab);
+    for (const [x, z] of [[-10.5, -10.5], [10.5, -10.5], [-10.5, 10.5], [10.5, 10.5]]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(1.2, 5.2, 1.2), wood);
+      leg.position.set(x, -3.5, z);
+      leg.castShadow = true;
+      this.scene.add(leg);
+    }
 
     // 中央的風位盤
     const plate = canvasTexture(512, 512, () => {});
@@ -161,6 +193,21 @@ export class TableView {
     pm.position.y = 0.125;
     pm.receiveShadow = true;
     this.scene.add(pm);
+  }
+
+  /** 換場景：柑仔店、騎樓、廟口夜市 */
+  setScene(id) {
+    if (id === this.sceneId) return;
+    this.sceneId = id;
+    if (this.sceneGroup) this.scene.remove(this.sceneGroup);
+    const sc = buildScene(id);
+    this.sceneGroup = sc.group;
+    this.scene.add(sc.group);
+    this.scene.background = new THREE.Color(sc.background);
+    this.hemi.color.set(sc.hemi[0]);
+    this.hemi.groundColor.set(sc.hemi[1]);
+    this.hemi.intensity = sc.hemi[2];
+    this.warm.intensity = 60 * sc.warm;
   }
 
   drawPlate(s) {
@@ -245,7 +292,7 @@ export class TableView {
         const m = makeTile(d.tile, this.renderer);
         const col = i % 6, row = Math.floor(i / 6);
         m.rotation.x = -Math.PI / 2;
-        m.position.set(-2.5 + col * TW * 1.0, LIE_Y, 3.1 + row * TH * 1.02);
+        m.position.set(-2.6 + col * TW * 1.04, LIE_Y, 3.1 + row * TH * 1.04);
         g.add(m);
         const isLast = s.lastDiscard && s.lastDiscard.seat === k && s.lastDiscard.index === i && s.phase !== 'end';
         if (isLast) {
@@ -284,12 +331,13 @@ export class TableView {
       if (k !== 0) {
         const n = P.handCount;
         const reveal = s.phase === 'end' && P.hand;
-        const width = n * TW;
+        const width = n * TW * 1.03;
         const right = Math.min(meldLeft - 0.4, width / 2);
         for (let i = 0; i < n; i++) {
           const m = makeTile(reveal ? P.hand[i] : null, this.renderer);
-          if (reveal) { m.rotation.x = -Math.PI / 2; m.position.set(right - width + i * TW + TW / 2, LIE_Y, 9.6); }
-          else m.position.set(right - width + i * TW + TW / 2, TH / 2, 9.8);
+          const px = right - width + i * TW * 1.03 + TW / 2;
+          if (reveal) { m.rotation.x = -Math.PI / 2; m.position.set(px, LIE_Y, 9.6); }
+          else m.position.set(px, TH / 2, 9.8);
           g.add(m);
         }
       }
@@ -313,6 +361,10 @@ export class TableView {
     tiles.sort((a, b) => a - b);
     const list = tiles.map(t => ({ t, drawn: false }));
     if (drawn != null) list.push({ t: drawn, drawn: true });
+    // 新摸進來的牌從上面滑下來
+    const dk = drawn != null ? `${s.remaining}:${drawn}` : '';
+    if (dk && dk !== this.drawKey) this.tween(this, 'drawOffset', 1, 0, 260, () => this.layoutHand());
+    this.drawKey = dk;
     list.forEach(({ t, drawn: d }) => {
       const m = makeTile(t, this.renderer);
       m.rotation.x = -0.32;
@@ -348,7 +400,8 @@ export class TableView {
         const i = this.handTiles.indexOf(m);
         if (m.userData.drawn) x += gap;
         m.scale.setScalar(tw);
-        const up = i === this.selected ? 0.34 : i === this.hover && this.canClick(i) ? 0.2 : 0;
+        let up = i === this.selected ? 0.34 : i === this.hover && this.canClick(i) ? 0.2 : 0;
+        if (m.userData.drawn) up += (this.drawOffset || 0) * 1.6;
         m.position.set(x, y + up * tw, ri * 10);
         x += tw;
       });
@@ -427,9 +480,10 @@ export class TableView {
   }
 
   // ---------- 動畫 ----------
-  tween(obj, prop, from, to, ms) {
+  tween(obj, prop, from, to, ms, onUpdate) {
     obj[prop] = from;
-    this.tweens.push({ obj, prop, from, to, ms, t0: performance.now() });
+    this.tweens = this.tweens.filter(t => !(t.obj === obj && t.prop === prop));
+    this.tweens.push({ obj, prop, from, to, ms, t0: performance.now(), onUpdate });
   }
 
   frame(now) {
@@ -437,6 +491,7 @@ export class TableView {
       const k = Math.min(1, (now - tw.t0) / tw.ms);
       const e = 1 - Math.pow(1 - k, 3);
       tw.obj[tw.prop] = tw.from + (tw.to - tw.from) * e;
+      tw.onUpdate?.();
       return k < 1;
     });
     if (this.marker.visible && this.lastDiscardMesh) {

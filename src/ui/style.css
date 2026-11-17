@@ -201,3 +201,31 @@ body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit
 .tag.seat3 .say { left: 0; transform: translateY(-4px); }
 .tag.seat3 .say.show { transform: none; }
 .tag.seat3 .say::before { left: 22px; transform: rotate(45deg); }
+
+/* 頭像 */
+.tag.has-face { padding-left: 3px; }
+.tag .face { width: 46px; height: 46px; border-radius: 50%; overflow: hidden; display: block; border: 2px solid var(--cream); flex: none; background: #eee; }
+.tag .face svg { width: 100%; height: 100%; display: block; }
+.tag .face.bounce { animation: bounce .4s ease-out; }
+@keyframes bounce { 0% { transform: scale(1); } 40% { transform: scale(1.15) rotate(-4deg); } 100% { transform: scale(1); } }
+.tag.has-face .wind { position: absolute; left: 32px; bottom: -4px; width: 20px; height: 20px; font-size: 12px; border: 1.5px solid var(--ink); }
+@media (max-width: 480px) {
+  .tag .face { width: 38px; height: 38px; }
+  .tag.has-face .wind { left: 26px; }
+}
+
+/* 場景與牌背選擇 */
+.settings .pick { padding: 8px 0; border-bottom: 1px dashed #c9b48a; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.settings .pick span { font-weight: 700; width: 100%; }
+.settings .pick button {
+  border: 1.5px solid #c9b48a; background: #fff8e6; border-radius: 8px; padding: 4px 9px; font-size: 13px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px; font-family: var(--sans); color: var(--ink);
+}
+.settings .pick button.on { background: var(--gold); border-color: var(--red); font-weight: 700; }
+.settings .pick i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.settings { max-height: calc(100vh - 70px); overflow: auto; }
+
+.confetti { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
+/* 對家在畫面最上方：喊聲改到名牌右邊，才不會被切掉 */
+.tag.seat2 .bubble { left: calc(100% + 10px); bottom: auto; top: 50%; transform: translate(0, -50%) scale(.7); }
+.tag.seat2 .bubble.show { transform: translate(0, -50%) scale(1); }

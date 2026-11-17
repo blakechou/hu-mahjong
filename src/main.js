@@ -1,4 +1,5 @@
-import { TableView } from './view3d/tableView.js';
+import { TableView, setSkin } from './view3d/tableView.js';
+import { sfx } from './ui/audio.js';
 import { Hud } from './ui/hud.js';
 import { Game, NAMES } from './game/controller.js';
 
@@ -12,8 +13,20 @@ async function boot() {
   } catch (e) { /* 字型載不到就用系統字 */ }
 
   const view = new TableView(document.getElementById('stage'));
-  const hud = new Hud(document.getElementById('hud'), NAMES);
+  const hud = new Hud(document.getElementById('hud'), NAMES, [null, 'abo', 'azhu', 'lin']);
   const game = new Game(view, hud);
+  // 設定：場景、牌背、音效
+  const apply = st => {
+    view.setScene(st.scene);
+    setSkin(st.skin);
+    sfx.enabled = st.sound;
+    if (game.round) game.refresh();
+  };
+  const coachHook = hud.onSettings;
+  hud.onSettings = st => { apply(st); coachHook?.(st); };
+  apply(hud.settings);
+  hud.onUi = kind => sfx[kind]?.();
+  document.addEventListener('pointerdown', () => sfx.unlock(), { capture: true });
   view.onFrame = () => {
     hud.placeTags(k => view.seatScreenPos(k), view.hudH);
   };
