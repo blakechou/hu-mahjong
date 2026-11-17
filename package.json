@@ -1,0 +1,10 @@
+{
+  "name": "hu-mahjong",
+  "private": true,
+  "version": "0.1.0",
+  "description": "胡麻將：台灣 16 張 3D 麻將",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
