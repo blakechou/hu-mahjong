@@ -7,7 +7,8 @@ const PAD = 20;
 const IW = W - PAD * 2, IH = H - PAD * 2;
 const C = {
   ivory: '#f6f1e3', edge: '#e2d9c2',
-  blue: '#1f4c9c', green: '#17764a', red: '#c4242c', ink: '#1c1f3a', gold: '#b8860b',
+  blue: '#1446b8', green: '#0b8a46', red: '#d8141f', ink: '#121530', gold: '#c48a06',
+  greenDark: '#05592b', greenLight: '#3fc27a',
 };
 export const FONT = "'Noto Serif TC', 'Songti TC', 'PMingLiU', 'MingLiU', serif";
 const NUM = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
@@ -18,7 +19,7 @@ function base(ctx) {
   // 微微的內陰影讓牌面有立體感
   const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.75);
   g.addColorStop(0, 'rgba(255,255,255,0)');
-  g.addColorStop(1, 'rgba(150,130,90,0.22)');
+  g.addColorStop(1, 'rgba(150,130,90,0.08)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 }
@@ -91,20 +92,49 @@ const SOU_POS = {
   8: [[.14, .27], [.38, .27], [.62, .27], [.86, .27], [.14, .73], [.38, .73], [.62, .73], [.86, .73]],
   9: [[.18, .17], [.5, .17], [.82, .17], [.18, .5], [.5, .5], [.82, .5], [.18, .83], [.5, .83], [.82, .83]],
 };
-function stick(ctx, x, y, h, color) {
-  const w = 22;
-  ctx.fillStyle = color;
-  const r = 9;
+/** 一根竹子：立體的漸層、深色外框、三個竹節；angle 是往右傾斜的弧度 */
+function stick(ctx, x, y, h, color, angle = 0) {
+  const w = 26;
+  const dark = color === C.green ? C.greenDark : shade(color, -0.35);
+  const light = color === C.green ? C.greenLight : shade(color, 0.35);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  const g = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+  g.addColorStop(0, dark); g.addColorStop(0.35, light); g.addColorStop(0.6, color); g.addColorStop(1, dark);
+  ctx.fillStyle = g;
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
-  ctx.roundRect(x - w / 2, y - h / 2, w, h, r);
+  ctx.roundRect(-w / 2, -h / 2, w, h, w / 2);
   ctx.fill();
-  ctx.fillStyle = C.ivory;
-  for (const t of [-0.5, 0, 0.5]) ctx.fillRect(x - w / 2, y + t * h * 0.62 - 2, w, 4);
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  ctx.fillRect(x - 3, y - h / 2 + 6, 4, h - 12);
+  ctx.stroke();
+  // 竹節：稍微凸出來的深色環
+  for (const t of [-0.5, 0, 0.5]) {
+    const ny = t * h * 0.62;
+    ctx.fillStyle = dark;
+    ctx.beginPath(); ctx.roundRect(-w / 2 - 2, ny - 3, w + 4, 6, 3); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fillRect(-w / 2 + 2, ny - 1, w - 4, 1.5);
+  }
+  ctx.restore();
 }
+
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = c => Math.max(0, Math.min(255, Math.round(amt < 0 ? c * (1 + amt) : c + (255 - c) * amt)));
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
 function drawSou(ctx, n) {
   if (n === 1) return drawBird(ctx);
+  if (n === 8) {
+    // 八條：上面四根排成 M，下面四根排成 W
+    const a = 0.42;
+    [[.15, a], [.38, -a], [.62, a], [.85, -a]].forEach(([x, ang]) => { const [px, py] = P(x, .27); stick(ctx, px, py, 112, C.green, ang); });
+    [[.15, -a], [.38, a], [.62, -a], [.85, a]].forEach(([x, ang]) => { const [px, py] = P(x, .73); stick(ctx, px, py, 112, C.green, ang); });
+    return;
+  }
   const h = n <= 4 ? 120 : n <= 6 ? 108 : 86;
   SOU_POS[n].forEach(([x, y], i) => {
     const [px, py] = P(x, y);
@@ -198,9 +228,12 @@ const cache = new Map();
 export function faceTexture(t, renderer) {
   const key = t == null ? 'blank' : t;
   if (cache.has(key)) return cache.get(key);
+  // 用兩倍解析度畫，牌面比較銳利
   const cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
-  drawFace(cv.getContext('2d'), t);
+  cv.width = W * 2; cv.height = H * 2;
+  const ctx = cv.getContext('2d');
+  ctx.scale(2, 2);
+  drawFace(ctx, t);
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = renderer ? renderer.capabilities.getMaxAnisotropy() : 4;

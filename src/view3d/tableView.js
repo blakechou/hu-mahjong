@@ -23,13 +23,14 @@ const geoFront = new RoundedBoxGeometry(TW, TH, FRONT_D, 2, R);
 const geoBack = new RoundedBoxGeometry(TW, TH, BACK_D, 2, R);
 const geoFace = new THREE.PlaneGeometry(TW - 2 * R + 0.02, TH - 2 * R + 0.02);
 // 牌的材質：象牙白與牌背都有一層亮光漆
-const ivoryMat = new THREE.MeshPhysicalMaterial({ color: 0xf3ecd9, roughness: 0.38, clearcoat: 0.7, clearcoatRoughness: 0.22 });
+const ivoryMat = new THREE.MeshPhysicalMaterial({ color: 0xf3ecd9, roughness: 0.4, clearcoat: 0.45, clearcoatRoughness: 0.25 });
 const backMat = new THREE.MeshPhysicalMaterial({ color: 0x1f7a55, roughness: 0.3, clearcoat: 0.9, clearcoatRoughness: 0.15 });
 const backFaceMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.3, clearcoat: 0.9, clearcoatRoughness: 0.15 });
 const faceMats = new Map();
 
 function faceMat(t, renderer) {
-  if (!faceMats.has(t)) faceMats.set(t, new THREE.MeshPhysicalMaterial({ map: faceTexture(t, renderer), roughness: 0.36, clearcoat: 0.7, clearcoatRoughness: 0.22 }));
+  // 牌面不上亮光漆：反光會讓花色看起來霧霧的
+  if (!faceMats.has(t)) faceMats.set(t, new THREE.MeshStandardMaterial({ map: faceTexture(t, renderer), roughness: 0.6, envMapIntensity: 0.25 }));
   return faceMats.get(t);
 }
 
@@ -81,8 +82,9 @@ export class TableView {
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     r.autoClear = false;
     r.outputColorSpace = THREE.SRGBColorSpace;
-    r.toneMapping = THREE.ACESFilmicToneMapping;
-    r.toneMappingExposure = 1.05;
+    // Neutral 色調：保留顏色的飽和度，不會像 ACES 那樣把紅綠洗淡
+    r.toneMapping = THREE.NeutralToneMapping;
+    r.toneMappingExposure = 1.0;
     container.appendChild(r.domElement);
     // 柔和的環境反射，讓牌面與木頭有光澤
     const pmrem = new THREE.PMREMGenerator(r);
@@ -735,7 +737,7 @@ export class TableView {
     // 手牌不套用電影色調，牌面顏色才鮮明
     r.toneMapping = THREE.NoToneMapping;
     r.render(this.hud, this.hudCam);
-    r.toneMapping = THREE.ACESFilmicToneMapping;
+    r.toneMapping = THREE.NeutralToneMapping;
     this.onFrame?.(now);
   }
 }
