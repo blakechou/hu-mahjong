@@ -1,0 +1,120 @@
+:root {
+  --red: #c4242c;
+  --gold: #e8b64a;
+  --cream: #f6ecd2;
+  --ink: #2a1a10;
+  --green: #1f7a55;
+  --hand-h: 120px;
+  --serif: 'Noto Serif TC', 'Songti TC', serif;
+  --sans: 'Noto Sans TC', 'PingFang TC', sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #2b1d14; color: var(--cream); font-family: var(--sans); }
+body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+#stage { position: fixed; inset: 0; }
+#stage canvas { display: block; }
+#hud { position: fixed; inset: 0; pointer-events: none; }
+#hud .modal, #hud .actions, #hud button { pointer-events: auto; }
+
+/* 名牌 */
+.tag {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 4px; border-radius: 999px;
+  background: rgba(30, 16, 8, 0.78); border: 1.5px solid rgba(232, 182, 74, 0.45);
+  font-size: 13px; white-space: nowrap; transition: box-shadow .2s, border-color .2s;
+}
+.tag.seat0 { transform: none; }
+.tag .wind {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--cream); color: var(--ink); font-family: var(--serif); font-weight: 900; font-size: 15px;
+}
+.tag .who { display: flex; flex-direction: column; line-height: 1.15; }
+.tag .name { font-size: 13px; }
+.tag .score { font-size: 11px; color: var(--gold); }
+.tag .badge:empty { display: none; }
+.tag .badge { background: var(--red); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 6px; font-weight: 700; }
+.tag.active { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(232, 182, 74, 0.35), 0 0 18px rgba(232, 182, 74, 0.5); }
+
+/* 喊聲泡泡 */
+.bubble {
+  position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translate(-50%, 6px) scale(.7);
+  opacity: 0; transition: transform .18s cubic-bezier(.3, 1.6, .5, 1), opacity .15s;
+  background: var(--cream); color: var(--red); font-family: var(--serif); font-weight: 900;
+  font-size: 22px; padding: 4px 14px; border-radius: 12px; border: 2px solid var(--red);
+  box-shadow: 0 4px 12px rgba(0,0,0,.4);
+}
+.bubble.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.bubble.big { font-size: 36px; padding: 6px 22px; background: var(--red); color: #fff3c8; border-color: var(--gold); }
+.tag.seat0 .bubble { left: 0; transform: translate(0, 6px) scale(.7); }
+.tag.seat0 .bubble.show { transform: none; }
+
+/* 上方資訊 */
+.topbar {
+  position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left));
+  background: rgba(30, 16, 8, 0.7); padding: 4px 14px; border-radius: 999px; font-size: 13px;
+  font-family: var(--serif); font-weight: 700; color: var(--gold);
+}
+.topbar .label:empty { display: none; }
+
+.tip {
+  position: absolute; left: 50%; bottom: calc(var(--hand-h) + 8px); transform: translateX(-50%);
+  background: rgba(30, 16, 8, 0.75); padding: 3px 12px; border-radius: 8px; font-size: 13px;
+  opacity: 0; transition: opacity .15s;
+}
+.tip.show { opacity: 1; }
+
+/* 動作按鈕 */
+.actions {
+  position: absolute; right: max(12px, env(safe-area-inset-right)); bottom: calc(var(--hand-h) + 8px);
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: 80vw;
+}
+.btn {
+  font-family: var(--serif); font-weight: 900; border: none; cursor: pointer;
+  border-radius: 12px; padding: 10px 18px; font-size: 18px;
+  background: var(--cream); color: var(--ink);
+  box-shadow: 0 4px 0 #8a6a3a, 0 6px 14px rgba(0,0,0,.4);
+  transition: transform .08s;
+}
+.btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #8a6a3a, 0 3px 8px rgba(0,0,0,.4); }
+.btn small { font-size: 13px; font-weight: 700; margin-left: 2px; }
+.btn.call { background: #f4c84f; }
+.btn.hu { background: var(--red); color: #fff3c8; box-shadow: 0 4px 0 #6e1014, 0 6px 14px rgba(0,0,0,.4); font-size: 22px; padding: 10px 24px; }
+.btn.pass { background: #d9cfb8; color: #5a4a35; }
+.btn.primary { background: var(--red); color: #fff3c8; box-shadow: 0 4px 0 #6e1014, 0 6px 14px rgba(0,0,0,.4); font-size: 20px; padding: 12px 32px; }
+
+/* 對話框 */
+.modal {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: 16px;
+  background: rgba(20, 10, 5, 0.55); backdrop-filter: blur(2px);
+}
+.modal.hidden { display: none; }
+.card {
+  width: min(420px, 100%); max-height: 100%; overflow: auto;
+  background: var(--cream); color: var(--ink); border-radius: 18px; padding: 22px 22px 20px;
+  border: 3px solid var(--red); box-shadow: 0 0 0 6px var(--cream), 0 0 0 8px var(--red), 0 20px 50px rgba(0,0,0,.6);
+  text-align: center;
+}
+.card h1 { font-family: var(--serif); font-weight: 900; font-size: 56px; margin: 4px 0 0; color: var(--red); letter-spacing: .1em; }
+.card h2 { font-family: var(--serif); font-weight: 900; font-size: 30px; margin: 4px 0; }
+.card h2 .hu { color: var(--red); }
+.card .sub { margin: 4px 0 14px; color: #6b5640; }
+.card .round { margin: 0; font-family: var(--serif); color: #8a6a3a; font-weight: 700; }
+.cast { display: grid; gap: 6px; margin: 12px 0 20px; }
+.cast div { display: flex; justify-content: space-between; background: #efe2c2; border-radius: 10px; padding: 8px 12px; }
+.cast b { font-family: var(--serif); }
+.cast span { color: #6b5640; font-size: 14px; }
+.tai { list-style: none; padding: 0; margin: 8px 0; text-align: left; }
+.tai li { display: flex; justify-content: space-between; padding: 5px 4px; border-bottom: 1px dashed #c9b48a; }
+.tai b { color: var(--red); }
+.total { font-family: var(--serif); font-weight: 900; font-size: 20px; margin: 8px 0 2px; }
+.note { margin: 0 0 6px; font-size: 13px; color: #6b5640; }
+.scores { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 15px; }
+.scores th { font-weight: 500; color: #8a6a3a; font-size: 13px; }
+.scores td, .scores th { padding: 5px; }
+.scores td:first-child { text-align: left; font-weight: 700; }
+.scores .up { color: #1f7a3a; font-weight: 700; }
+.scores .down { color: var(--red); font-weight: 700; }
+.rank { list-style: none; padding: 0; margin: 14px 0 20px; }
+.rank li { display: flex; justify-content: space-between; padding: 10px 14px; border-radius: 10px; margin-bottom: 6px; background: #efe2c2; font-size: 18px; }
+.rank li.first { background: var(--gold); font-weight: 900; }
