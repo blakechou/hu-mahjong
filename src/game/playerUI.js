@@ -2,6 +2,7 @@
 // 單機與連線共用。收到的座位都是「絕對座位」，畫面上一律把自己轉到下方（相對座位 0）。
 import { tileName } from '../core/tiles.js';
 import { sfx } from '../ui/audio.js';
+import { INTRO } from './host.js';
 import { STICKERS, LinePicker } from './lines.js';
 import { discardAdvice, describeDiscard, currentWaits, shantenAfterCall, shantenText, roundFromView } from './coach.js';
 
@@ -12,10 +13,12 @@ export class PlayerUI {
   /**
    * send(action)：送出動作；sendSticker(toAbs, id)；next()／again()：房主才有
    */
-  constructor(view, hud, { send, sendSticker, next, again }) {
+  constructor(view, hud, { send, sendSticker, next, again, roll }) {
     this.view = view;
     this.hud = hud;
     this.send = send;
+    this.roll = roll;
+    this.busy = false;     // 正在播開局動畫（抓位、擲骰、抓牌）
     this.next = next;
     this.again = again;
     this.mySeat = 0;
@@ -44,7 +47,128 @@ export class PlayerUI {
     };
   }
 
+  // ---------- 開局：抓位、擲骰、抓牌 ----------
+  /** 還沒抓牌的桌面：牌墩完整、大家手上沒牌 */
+  preDeal(v, step = 0) {
+    const counts = [0, 0, 0, 0];
+    for (let j = 0; j < Math.min(step, 16); j++) counts[(v.dealer + (j % 4)) % 4] += 4;
+    if (step >= 17) counts[v.dealer] += 1;
+    const mine = (v.players[this.mySeat].hand || []).slice(0, counts[this.mySeat]).sort((a, b) => a - b);
+    return {
+      ...v,
+      phase: 'deal', drawn: null, lastDiscard: null, actions: [], turn: -1,
+      wallHead: step ? Math.min(step, 16) * 4 + (step >= 17 ? 1 : 0) : 0,
+      wallTail: 0,
+      dice: step || this.diceShown ? v.dice : null,
+      remaining: v.remaining,
+      players: v.players.map((P, k) => ({
+        hand: k === this.mySeat ? mine : null, handCount: counts[k], melds: [], discards: [], flowers: [],
+      })),
+    };
+  }
+
+  renderRaw(v, meta) {
+    const rv = this.rotateView(v);
+    this.view.render({ ...rv, label: meta.label });
+    this.hud.update({
+      dealer: rv.dealer, streak: v.streak, scores: this.rotArr(meta.scores), turn: rv.turn,
+      label: `${meta.label}　剩 ${Math.max(0, v.remaining)} 張`, phase: v.phase,
+    });
+  }
+
+  showIntro(v, meta) {
+    const key = `${meta.names}|${meta.faces}|${this.mySeat}`;
+    if (key !== this.playersKey) {
+      this.playersKey = key;
+      this.hud.setPlayers(this.rotArr(meta.names), this.rotArr(meta.faces));
+    }
+    this.view.setInteractive(false);
+    this.view.setHint(null);
+    this.hud.coach('');
+    // 抓牌動畫已經播完、房主還在等：直接畫抓好的牌
+    if (meta.intro === 'deal' && this.diceShown) {
+      this.hud.actions([]);
+      return this.renderRaw({ ...v, actions: [] }, meta);
+    }
+    this.renderRaw(this.preDeal(v), meta);
+    if (meta.intro === 'roll') {
+      if (v.dealer === this.mySeat && this.roll) {
+        this.hud.tip('你是莊家，擲骰子決定從哪裡開門');
+        this.hud.actions([{ label: '🎲 擲骰子', kind: 'hu', onClick: () => this.roll() }]);
+      } else {
+        this.hud.actions([]);
+        this.hud.tip(`等 ${meta.names[v.dealer]} 擲骰子…`);
+      }
+    }
+  }
+
+  /** 抓位動畫 */
+  async seatDraw(ev) {
+    this.busy = true;
+    this.hud.hideResult();
+    this.hud.actions([]);
+    this.hud.coach('');
+    this.view.clearDice();
+    this.diceShown = false;
+    this.v = null;
+    this.mySeat = ev.you;
+    this.playersKey = '';
+    this.hud.setPlayers(this.rotArr(ev.names), this.rotArr(ev.faces));
+    this.hud.resetExpr();
+    // 空桌：清掉上一將的牌
+    this.view.render({
+      phase: 'deal', turn: -1, dealer: 0, players: [0, 1, 2, 3].map(() => ({ hand: [], handCount: 0, melds: [], discards: [], flowers: [] })),
+      remaining: 0, label: '抓位', lastDiscard: null, dice: null, wallHead: 0, wallTail: 0,
+    });
+    this.hud.tip('抓位：每人抓一張風牌，抓到「東」的先當莊');
+    const W = '東南西北';
+    const picks = ev.picks.map(p => ({ seatRel: this.rel(p.oldSeat), wind: p.wind }));
+    await this.view.seatDraw(picks, i => {
+      const p = ev.picks[i];
+      this.hud.shout(this.rel(p.oldSeat), `抓到${W[p.wind]}`, p.wind === 0 ? 'big' : '');
+      sfx.flower();
+    });
+    this.hud.tip('');
+    this.busy = false;
+    if (this.v) this.state(this.v, this.meta);
+  }
+
+  /** 擲骰子＋抓牌動畫 */
+  async dealIntro(ev) {
+    this.busy = true;
+    this.hud.actions([]);
+    this.hud.tip('');
+    const v = this.v;
+    const dealerRel = this.rel(ev.seat);
+    await this.view.rollDice(ev.dice, dealerRel, () => sfx.diceHit());
+    this.diceShown = true;
+    const total = ev.dice.reduce((a, b) => a + b, 0);
+    this.hud.shout(dealerRel, `${total} 點`, 'big');
+    await this.view.wait(Math.max(0, INTRO.dice - 1300));
+    // 抓牌：從莊家開始，每人一次抓四張，抓四輪；最後莊家再跳一張
+    const meta = this.meta;
+    const base = this.preDeal(v, 0);
+    for (let step = 1; step <= 17; step++) {
+      const j = step - 1;
+      const who = step === 17 ? v.dealer : (v.dealer + (j % 4)) % 4;
+      const rv = this.rotateView(base);
+      this.view.dealGrab(rv, j * 4, step === 17 ? 1 : 4, this.rel(who));
+      sfx.draw();
+      await this.view.wait(INTRO.dealStep);
+      this.renderRaw(this.preDeal(v, step), meta);
+    }
+    await this.view.wait(200);
+    this.busy = false;
+    // 補花
+    const latest = this.v;
+    latest.players.forEach((P, k) => { if (P.flowers.length) { this.hud.shout(this.rel(k), `補花 ×${P.flowers.length}`); } });
+    if (latest.players.some(P => P.flowers.length)) sfx.flower();
+    this.state(this.v, this.meta);
+  }
+
   roundStart() {
+    this.diceShown = false;
+    this.view.clearDice();
     this.hud.hideResult();
     this.localLines.reset();
     this.praised = false;
@@ -55,9 +179,12 @@ export class PlayerUI {
 
   // ---------- 收到牌局 ----------
   state(v, meta) {
-    this.mySeat = meta.mySeat;
     this.v = v;
     this.meta = meta;
+    // 動畫播放中：先存起來，播完再畫
+    if (this.busy) return;
+    this.mySeat = meta.mySeat;
+    if (meta.intro) return this.showIntro(v, meta);
     this.deadline = meta.deadlineIn != null ? performance.now() + meta.deadlineIn : null;
     const key = `${meta.names}|${meta.faces}|${this.mySeat}`;
     if (key !== this.playersKey) {
@@ -209,6 +336,15 @@ export class PlayerUI {
   // ---------- 事件 ----------
   event(ev) {
     const R = k => this.rel(k);
+    // 開局動畫依序排隊播放，前一段還沒播完就先等
+    if (ev.type === 'seatDraw' || ev.type === 'dice') {
+      this.busy = true;
+      this.chain = (this.chain || Promise.resolve())
+        .then(() => (ev.type === 'seatDraw' ? this.seatDraw(ev) : this.dealIntro(ev)))
+        .catch(e => { console.error(e); this.busy = false; });
+      return;
+    }
+    if (this.busy) return;
     switch (ev.type) {
       case 'discard': sfx.discard(); break;
       case 'draw': if (ev.seat === this.mySeat) sfx.draw(); break;

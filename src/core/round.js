@@ -72,6 +72,8 @@ export class Round {
     this.wall = this.rng.shuffle(fullSet());
     this.head = 0;
     this.tail = this.wall.length;
+    // 莊家擲三顆骰子決定從哪裡開門（只影響畫面上從牌墩哪裡開始抓）
+    this.dice = [0, 0, 0].map(() => 1 + this.rng.int(6));
     // 每人輪流抓 4 張、抓 4 輪
     for (let r = 0; r < 4; r++) {
       for (let q = 0; q < 4; q++) {
@@ -413,6 +415,9 @@ export class Round {
         flowers: P.flowers.slice(),
       })),
       actions: this.legalActions(seat),
+      dice: this.dice || null,
+      wallHead: this.wall ? this.head : 0,
+      wallTail: this.wall ? this.wall.length - this.tail : 0,
       claim: this.claims ? { tile: this.claims.tile, from: this.claims.from, kind: this.claims.kind } : null,
       result: this.result,
     };

@@ -78,6 +78,7 @@ export class HostSession {
     if (k == null || this.seats[k]?.conn !== conn) return;
     if (m.t === 'act') this.host?.act(k, cleanAction(m.a));
     else if (m.t === 'sticker') this.host?.sticker(k, Number(m.to), String(m.id));
+    else if (m.t === 'roll') this.host?.roll(k);
     else if (m.t === 'leave') conn.close();
   }
 

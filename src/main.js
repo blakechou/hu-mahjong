@@ -48,6 +48,7 @@ async function boot() {
         sendSticker: (to, id) => host.sticker(0, to, id),
         next: () => host.next(),
         again: () => host.again(),
+        roll: () => host.roll(0),
       });
       hookSettings();
       host = new TableHost({
@@ -57,6 +58,7 @@ async function boot() {
         ],
       });
       window.__host = host;
+      window.__ui = ui;
       host.newMatch();
     },
     // 開房間
@@ -67,6 +69,7 @@ async function boot() {
         sendSticker: (to, id) => session.host?.sticker(0, to, id),
         next: () => session.host?.next(),
         again: () => session.host?.again(),
+        roll: () => session.host?.roll(0),
       });
       hookSettings();
       session.attach(ui);
@@ -85,6 +88,7 @@ async function boot() {
       ui = new PlayerUI(view, hud, {
         send: a => session.send({ t: 'act', a }),
         sendSticker: (to, id) => session.send({ t: 'sticker', to, id }),
+        roll: () => session.send({ t: 'roll' }),
       });
       hookSettings();
       hud.notice('連線中…', '取消', () => { location.href = location.pathname; });

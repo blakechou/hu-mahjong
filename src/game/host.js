@@ -14,7 +14,10 @@ const TALK_GAP = 2500;
 const IDLE_FIRST = 15000, IDLE_SECOND = 35000;
 const RESULT_DELAY = 1800;
 // 連線對局的思考時間
-export const LIMITS = { turn: 40000, firstTurn: 60000, claim: 15000 };
+export const LIMITS = { turn: 40000, firstTurn: 60000, claim: 15000, roll: 15000 };
+// 開局動畫的時間（房主等這麼久才開始打，畫面那邊照這個時間播）
+export const INTRO = { seatDraw: 5600, dice: 1700, dealStep: 170, dealSteps: 17, tail: 700 };
+export const DEAL_MS = INTRO.dice + INTRO.dealStep * INTRO.dealSteps + INTRO.tail;
 
 const EXPR = {
   start: 'normal', call: 'proud', tenpai: 'proud', tsumo: 'laugh', ron: 'laugh', dealIn: 'upset',
@@ -29,7 +32,8 @@ export class TableHost {
    * timed: 是否限制思考時間（連線時開啟）
    */
   constructor({ seats, timed = false }) {
-    this.seats = seats.map((s, k) => ({ ...s, persona: SEAT_PERSONAS[k], takeover: false }));
+    // pid：玩家編號（不會變）；抓位之後座位會重排
+    this.seats = seats.map((s, k) => ({ ...s, pid: k, persona: SEAT_PERSONAS[k], takeover: false }));
     this.timed = timed;
     this.token = 0;
     this.lines = new LinePicker();
@@ -39,6 +43,8 @@ export class TableHost {
   }
 
   // ---------- 座位 ----------
+  seatOf(pid) { return this.seats.findIndex(s => s.pid === pid); }
+  all() { return [0, 1, 2, 3]; }
   isAI(k) { return this.seats[k].kind === 'ai'; }
   /** 有角色個性、會講話的電腦（不是斷線代打） */
   isCharacter(k) { return this.isAI(k) && !this.seats[k].takeover; }
@@ -51,16 +57,20 @@ export class TableHost {
   each(fn) { for (const { k, sink } of this.sinks()) fn(sink, k); }
 
   /** 連線玩家斷線：改由電腦代打 */
-  takeover(k) {
+  takeover(pid) {
+    const k = this.seatOf(pid);
     const s = this.seats[k];
     if (s.kind !== 'remote') return;
     s.kind = 'ai'; s.takeover = true; s.sink = null;
+    // 正好輪到他擲骰子：電腦幫他擲
+    if (this.intro === 'roll' && this.round?.dealer === k) this.later(() => this.doRoll(), 800);
     this.broadcast();
     this.pump();
   }
 
   /** 斷線的玩家回來了 */
-  rejoin(k, sink) {
+  rejoin(pid, sink) {
+    const k = this.seatOf(pid);
     const s = this.seats[k];
     s.kind = 'remote'; s.takeover = false; s.sink = sink;
     this.broadcast();
@@ -78,9 +88,25 @@ export class TableHost {
   clearTimers() { this.timers.forEach(clearTimeout); this.timers.clear(); }
 
   // ---------- 流程 ----------
+  /** 新的一將：先抓位（四張風牌決定座位，抓到東的當第一個莊），再開打 */
   newMatch() {
-    this.match = new Match({ firstDealer: Math.floor(Math.random() * 4) });
-    this.startRound();
+    this.token++;
+    this.clearTimers();
+    this.round = null;
+    this.intro = null;
+    this.deadline = null;
+    this.lastResult = null;
+    this.waitingNext = false;
+    const winds = [0, 1, 2, 3];
+    for (let i = 3; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [winds[i], winds[j]] = [winds[j], winds[i]]; }
+    const picks = this.seats.map((s, k) => ({ oldSeat: k, wind: winds[k] }));
+    const names = this.names(), faces = this.faces();
+    this.each((sink, k) => sink.event({ type: 'seatDraw', you: k, picks, names, faces }));
+    const next = [];
+    this.seats.forEach((s, k) => { next[winds[k]] = s; });
+    this.seats = next;
+    this.match = new Match({ firstDealer: 0 });
+    this.later(() => this.startRound(), INTRO.seatDraw);
   }
 
   startRound() {
@@ -94,16 +120,40 @@ export class TableHost {
     this.lines.reset();
     this.aiTenpai = [false, false, false, false];
     this.each(s => s.roundStart?.());
+    // 洗牌、抓牌在引擎裡一次做完，畫面那邊再照順序播動畫；這段時間的事件不送出去
+    this.starting = true;
     this.round.start();
-    const chars = [1, 2, 3].filter(k => this.isCharacter(k));
+    this.starting = false;
+    const chars = this.all().filter(k => this.isCharacter(k));
     if (chars.length) this.talk(pickOne(chars), 'start', { prob: this.match.history.length === 0 ? 1 : 0.4, delay: 600 });
-    this.pump();
+    // 等莊家擲骰子
+    this.intro = 'roll';
+    const d = this.round.dealer;
+    if (this.isAI(d)) this.later(() => this.doRoll(), 1200);
+    else if (this.timed) this.setDeadline(LIMITS.roll, () => this.doRoll());
+    this.broadcast();
+  }
+
+  /** 莊家擲骰（玩家按按鈕，或電腦自動） */
+  roll(pid) {
+    if (this.intro === 'roll' && this.round && this.seatOf(pid) === this.round.dealer) this.doRoll();
+  }
+
+  doRoll() {
+    if (this.intro !== 'roll') return;
+    this.clearTimers();
+    this.deadline = null;
+    this.intro = 'deal';
+    this.each(s => s.event({ type: 'dice', dice: this.round.dice, seat: this.round.dealer }));
+    this.broadcast();
+    this.later(() => { this.intro = null; this.pump(); }, DEAL_MS);
   }
 
   /** 某家做了動作（本機或連線玩家都走這裡）；不合法就回傳 false */
-  act(k, a) {
+  act(pid, a) {
+    const k = this.seatOf(pid);
     const r = this.round;
-    if (!r || r.phase === 'end' || this.isAI(k)) return false;
+    if (!r || this.intro || r.phase === 'end' || k < 0 || this.isAI(k)) return false;
     try { r.act(k, a); } catch (e) { return false; }
     if (a.type === 'discard') this.afterDiscard(k);
     this.pump();
@@ -118,9 +168,10 @@ export class TableHost {
 
   pump() {
     const r = this.round;
+    if (!r) return;
+    if (this.intro) { this.broadcast(); return; }
     this.clearTimers();
     this.deadline = null;
-    if (!r) return;
     if (r.phase === 'end') {
       this.broadcast();
       if (!this.lastResult) this.later(() => this.finishRound(), RESULT_DELAY);
@@ -179,6 +230,7 @@ export class TableHost {
       names: this.names(),
       faces: this.faces(),
       deadlineIn: this.deadline ? Math.max(0, this.deadline - Date.now()) : null,
+      intro: this.intro || null,
       timed: this.timed,
     };
   }
@@ -189,6 +241,7 @@ export class TableHost {
   }
 
   onRoundEvent(ev) {
+    if (this.starting) return;
     switch (ev.type) {
       case 'discard':
       case 'flower':
@@ -205,7 +258,7 @@ export class TableHost {
         if (this.isCharacter(ev.seat)) this.talk(ev.seat, 'call', { prob: this.seats[ev.seat].persona.id === 'azhu' ? 0.85 : 0.45, delay: 250 });
         // 有人副露到 3 組以上，其他街坊會緊張
         const open = this.round.players[ev.seat].melds.filter(m => m.type !== 'ankan').length;
-        if (open >= 3) for (const k of [1, 2, 3]) if (k !== ev.seat && this.isCharacter(k) && !this.aiTenpai[k]) this.expr(k, 'nervous', 3200);
+        if (open >= 3) for (const k of this.all()) if (k !== ev.seat && this.isCharacter(k) && !this.aiTenpai[k]) this.expr(k, 'nervous', 3200);
         break;
       }
       case 'end':
@@ -216,7 +269,7 @@ export class TableHost {
   }
 
   reactToEnd(r) {
-    const chars = [1, 2, 3].filter(k => this.isCharacter(k));
+    const chars = this.all().filter(k => this.isCharacter(k));
     if (r.type !== 'win') {
       if (chars.length) this.talk(pickOne(chars), 'draw', { force: true, delay: 500 });
       return;
@@ -246,7 +299,8 @@ export class TableHost {
   expr(k, expr, ms) { this.each(s => s.expr(k, expr, ms)); }
 
   /** 玩家丟貼圖（from 自己那邊已經播過動畫，不用再送） */
-  sticker(from, to, id) {
+  sticker(fromPid, to, id) {
+    const from = this.seatOf(fromPid);
     if (!STICKERS.some(s => s.id === id) || from === to || to < 0 || to > 3) return;
     const now = Date.now();
     const s = this.seats[from];
@@ -257,7 +311,7 @@ export class TableHost {
   }
 
   startIdle(k) {
-    const chars = [1, 2, 3].filter(q => this.isCharacter(q) && q !== k);
+    const chars = this.all().filter(q => this.isCharacter(q) && q !== k);
     if (!chars.length) return;
     const nag = () => {
       const q = pickOne(chars);

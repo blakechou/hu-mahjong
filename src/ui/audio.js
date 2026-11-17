@@ -123,6 +123,17 @@ export class Sfx {
     [440, 392].forEach((f, i) => this.tone(t + i * 0.22, 0.4, f, { type: 'sine', vol: 0.14 }));
   }
 
+  /** 骰子落在桌上 */
+  diceHit() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const tt = t + i * 0.025 + Math.random() * 0.02;
+      this.noise(tt, 0.04, { freq: 3800 + Math.random() * 1500, q: 4, vol: 0.35 });
+      this.tone(tt, 0.05, 1800 + Math.random() * 600, { type: 'triangle', vol: 0.08 });
+    }
+  }
+
   click() { if (!this.ready) return; this.tone(this.ctx.currentTime, 0.06, 1500, { type: 'sine', vol: 0.08, freqEnd: 900 }); }
 
   whoosh() {
