@@ -24,7 +24,7 @@ export class Hud {
     root.innerHTML = `
       <div class="tags">${[0, 1, 2, 3].map(k => `
         <div class="tag seat${k}${faces[k] ? ' has-face' : ''}" data-seat="${k}">
-          ${faces[k] ? `<span class="face">${portraitSVG(faces[k])}</span>` : ''}
+          <span class="face">${faces[k] ? portraitSVG(faces[k]) : ''}</span>
           <span class="wind"></span>
           <span class="who"><b class="name">${names[k]}</b><span class="score">0</span></span>
           <span class="badge"></span>
@@ -52,6 +52,9 @@ export class Hud {
       <div class="coachbar"></div>
       <div class="tip"></div>
       <div class="actions"></div>
+      <div class="timer hidden"></div>
+      <div class="modal lobby hidden"></div>
+      <div class="modal notice hidden"></div>
       <div class="modal result hidden"></div>
       <div class="modal title">
         <div class="card">
@@ -62,7 +65,13 @@ export class Hud {
             <div><b>檳榔攤阿珠姨</b><span>手腳緊、嘴閣較緊</span></div>
             <div><b>退休林老師</b><span>防守滴水不漏</span></div>
           </div>
-          <button class="btn primary start">開始打牌</button>
+          <label class="namebox">你的名字 <input class="myname" maxlength="8" placeholder="雀友"></label>
+          <button class="btn primary start">單人遊戲</button>
+          <div class="mp">
+            <button class="btn host">開房間</button>
+            <div class="joinrow"><input class="code" maxlength="6" placeholder="房號" autocapitalize="off" autocomplete="off"><button class="btn join">加入</button></div>
+          </div>
+          <p class="mp-note">連線對戰：開房間後把房號或連結傳給朋友，空位由電腦補上</p>
         </div>
       </div>`;
     this.tags = [...root.querySelectorAll('.tag')];
@@ -153,6 +162,8 @@ export class Hud {
   }
 
   /** 換表情；ms 之後回到平常（0 表示不回復） */
+  hideResult() { this.resultEl.classList.add('hidden'); }
+
   setExpr(seat, expr, ms = 3200) {
     const id = this.faces[seat];
     if (!id) return;
@@ -188,8 +199,89 @@ export class Hud {
     this.coachEl.classList.toggle('show', !!html);
   }
 
-  onStart(fn) {
-    this.titleEl.querySelector('.start').onclick = () => { this.titleEl.classList.add('hidden'); fn(); };
+  /** 開頭選單：單人、開房、加入 */
+  onMenu({ solo, host, join }) {
+    const t = this.titleEl;
+    const nameEl = t.querySelector('.myname');
+    const codeEl = t.querySelector('.code');
+    try { nameEl.value = localStorage.getItem('hu-mahjong-name') || ''; } catch (e) { /* 無痕模式 */ }
+    const name = () => {
+      const n = nameEl.value.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 8) || '雀友';
+      try { localStorage.setItem('hu-mahjong-name', n); } catch (e) { /* 無痕模式 */ }
+      return n;
+    };
+    const room = new URLSearchParams(location.search).get('room');
+    if (room) { codeEl.value = room; t.querySelector('.join').classList.add('primary'); }
+    t.querySelector('.start').onclick = () => { this.hideTitle(); solo(name()); };
+    t.querySelector('.host').onclick = () => host(name());
+    t.querySelector('.join').onclick = () => {
+      const code = codeEl.value.trim().toLowerCase();
+      if (!code) return codeEl.focus();
+      join(code, name());
+    };
+  }
+
+  hideTitle() { this.titleEl.classList.add('hidden'); }
+  showTitle() { this.titleEl.classList.remove('hidden'); }
+
+  /** 大廳：房號、座位、開始 */
+  showLobby({ code, seats, isHost, onStart, onLeave }) {
+    const el = this.root.querySelector('.lobby');
+    const url = `${location.origin}${location.pathname}?room=${code}`;
+    const kindText = { host: '房主', human: '玩家', ai: '電腦', away: '離線' };
+    el.innerHTML = `<div class="card">
+      <h2>房間 <span class="roomcode">${code}</span></h2>
+      <p class="sub">把房號或連結傳給朋友</p>
+      <div class="share"><input readonly value="${url}"><button class="btn copy">複製</button></div>
+      <ul class="seats">${seats.map((x, i) => `<li class="${x.kind}"><span class="w">${'東南西北'[i]}位</span><b>${escapeHtml(x.name)}</b><small>${kindText[x.kind] || ''}</small></li>`).join('')}</ul>
+      ${isHost ? '<button class="btn primary go">開始打牌</button>' : '<p class="wait">等房主開始…</p>'}
+      <button class="btn pass leave">離開</button>
+    </div>`;
+    el.classList.remove('hidden');
+    this.hideTitle();
+    el.querySelector('.copy').onclick = () => {
+      const inp = el.querySelector('.share input');
+      inp.select();
+      navigator.clipboard?.writeText(url).catch(() => document.execCommand('copy'));
+      el.querySelector('.copy').textContent = '已複製';
+    };
+    if (isHost) el.querySelector('.go').onclick = () => onStart();
+    el.querySelector('.leave').onclick = () => onLeave();
+  }
+
+  hideLobby() { this.root.querySelector('.lobby').classList.add('hidden'); }
+
+  /** 簡單的通知框 */
+  notice(text, button = '好', onClick) {
+    const el = this.root.querySelector('.notice');
+    el.innerHTML = `<div class="card"><p class="msg">${text}</p><button class="btn primary ok">${button}</button></div>`;
+    el.classList.remove('hidden');
+    el.querySelector('.ok').onclick = () => { el.classList.add('hidden'); onClick?.(); };
+  }
+
+  hideNotice() { this.root.querySelector('.notice').classList.add('hidden'); }
+
+  /** 更新每家的名字與頭像（相對座位） */
+  setPlayers(names, faces) {
+    this.names = names;
+    this.faces = faces;
+    this.tags.forEach((el, k) => {
+      el.querySelector('.name').textContent = names[k];
+      el.classList.toggle('has-face', !!faces[k]);
+      const f = el.querySelector('.face');
+      f.innerHTML = faces[k] ? portraitSVG(faces[k]) : '';
+      f.dataset.expr = 'normal';
+    });
+    this.root.querySelectorAll('.tgt').forEach(b => { b.textContent = names[Number(b.dataset.seat)]; });
+  }
+
+  /** 倒數秒數（null 隱藏） */
+  timer(sec) {
+    const el = this.root.querySelector('.timer');
+    if (sec == null) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    el.textContent = `⏱ ${Math.max(0, sec)}`;
+    el.classList.toggle('urgent', sec <= 5);
   }
 
   /** 每一幀更新名牌位置 */
@@ -247,6 +339,7 @@ export class Hud {
 
   /** 一局結束的結算畫面 */
   showResult({ result, label, names, scores, dealer, over, onNext }) {
+    names = names.map(escapeHtml); // 連線玩家的名字不能當 HTML
     const el = this.resultEl;
     let head, body = '';
     if (result.type === 'draw') {
@@ -268,23 +361,28 @@ export class Hud {
       <p class="round">${label}</p>
       ${head}${body}
       <table class="scores"><tr><th></th><th>這局</th><th>總分</th></tr>${rows}</table>
-      <button class="btn primary next">${over ? '看總成績' : '下一局'}</button>
+      ${onNext ? `<button class="btn primary next">${over ? '看總成績' : '下一局'}</button>` : '<p class="wait">等房主開下一局…</p>'}
     </div>`;
     el.classList.remove('hidden');
-    el.querySelector('.next').onclick = () => { el.classList.add('hidden'); onNext(); };
+    if (onNext) el.querySelector('.next').onclick = () => { el.classList.add('hidden'); onNext(); };
   }
 
   showFinal({ names, scores, onAgain }) {
+    names = names.map(escapeHtml);
     const el = this.resultEl;
     const order = [0, 1, 2, 3].sort((a, b) => scores[b] - scores[a]);
     el.innerHTML = `<div class="card">
       <h2>一將結束</h2>
       <ol class="rank">${order.map((k, i) => `<li class="${i === 0 ? 'first' : ''}"><span>${names[k]}</span><b>${scores[k] > 0 ? '+' : ''}${scores[k]}</b></li>`).join('')}</ol>
-      <button class="btn primary again">再一將！</button>
+      ${onAgain ? '<button class="btn primary again">再一將！</button>' : '<p class="wait">等房主決定要不要再一將…</p>'}
     </div>`;
     el.classList.remove('hidden');
-    el.querySelector('.again').onclick = () => { el.classList.add('hidden'); onAgain(); };
+    if (onAgain) el.querySelector('.again').onclick = () => { el.classList.add('hidden'); onAgain(); };
   }
 }
 
 export { $ };
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}

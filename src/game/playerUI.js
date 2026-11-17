@@ -1,0 +1,265 @@
+// 玩家介面：把房主送來的牌局畫出來、處理點牌與按鈕、教學提示。
+// 單機與連線共用。收到的座位都是「絕對座位」，畫面上一律把自己轉到下方（相對座位 0）。
+import { tileName } from '../core/tiles.js';
+import { sfx } from '../ui/audio.js';
+import { STICKERS, LinePicker } from './lines.js';
+import { discardAdvice, describeDiscard, currentWaits, shantenAfterCall, shantenText, roundFromView } from './coach.js';
+
+const MELD_SHOUT = { chi: '吃！', pon: '碰！', minkan: '槓！', kakan: '槓！', ankan: '暗槓！' };
+const DANGER_COOLDOWN = 12000;
+
+export class PlayerUI {
+  /**
+   * send(action)：送出動作；sendSticker(toAbs, id)；next()／again()：房主才有
+   */
+  constructor(view, hud, { send, sendSticker, next, again }) {
+    this.view = view;
+    this.hud = hud;
+    this.send = send;
+    this.next = next;
+    this.again = again;
+    this.mySeat = 0;
+    this.localLines = new LinePicker();
+    this.dangerAt = 0;
+    view.onTileClick = t => this.discard(t);
+    view.onHover = t => this.onHover(t);
+    hud.onSticker = (toRel, st) => sendSticker?.(this.abs(toRel), st.id);
+    hud.onSettings = () => this.refreshCoach();
+    this.countdown = setInterval(() => this.tickTimer(), 250);
+  }
+
+  get settings() { return this.hud.settings; }
+  rel(k) { return (k - this.mySeat + 4) % 4; }
+  abs(r) { return (r + this.mySeat) % 4; }
+  rotArr(a) { return [0, 1, 2, 3].map(r => a[this.abs(r)]); }
+
+  /** 把絕對座位的牌局轉成「自己在下方」 */
+  rotateView(v) {
+    const R = k => (k == null || k < 0 ? k : this.rel(k));
+    return {
+      ...v,
+      turn: R(v.turn), dealer: R(v.dealer),
+      lastDiscard: v.lastDiscard ? { ...v.lastDiscard, seat: R(v.lastDiscard.seat) } : null,
+      players: this.rotArr(v.players),
+    };
+  }
+
+  roundStart() {
+    this.hud.hideResult();
+    this.localLines.reset();
+    this.praised = false;
+    this.hud.resetExpr();
+    this.view.lastKey = '';
+    sfx.shuffle();
+  }
+
+  // ---------- 收到牌局 ----------
+  state(v, meta) {
+    this.mySeat = meta.mySeat;
+    this.v = v;
+    this.meta = meta;
+    this.deadline = meta.deadlineIn != null ? performance.now() + meta.deadlineIn : null;
+    const key = `${meta.names}|${meta.faces}|${this.mySeat}`;
+    if (key !== this.playersKey) {
+      this.playersKey = key;
+      this.hud.setPlayers(this.rotArr(meta.names), this.rotArr(meta.faces));
+    }
+    const rv = this.rotateView(v);
+    this.view.render({ ...rv, label: meta.label });
+    this.hud.update({
+      dealer: rv.dealer, streak: v.streak, scores: this.rotArr(meta.scores), turn: rv.turn,
+      label: `${meta.label}　剩 ${Math.max(0, v.remaining)} 張`, phase: v.phase,
+    });
+
+    const acts = v.actions || [];
+    const myTurn = v.phase === 'turn' && v.turn === this.mySeat && acts.length > 0;
+    const myClaim = (v.phase === 'claim' || v.phase === 'robkan') && acts.length > 0;
+    const stepKey = `${v.phase}:${v.turn}:${v.remaining}:${v.lastDiscard?.index}:${v.lastDiscard?.seat}`;
+    const fresh = stepKey !== this.stepKey;
+    this.stepKey = stepKey;
+
+    this.advice = null;
+    if (myTurn) this.myTurn(acts, fresh);
+    else if (myClaim) this.myClaim(acts);
+    else {
+      this.view.setInteractive(false);
+      this.hud.actions([]);
+      if (fresh) this.hud.tip('');
+    }
+    this.refreshCoach();
+    this.checkPraise();
+  }
+
+  myTurn(acts, fresh) {
+    const buttons = [];
+    for (const a of acts) {
+      if (a.type === 'tsumo') buttons.push({ label: '自摸', kind: 'hu', onClick: () => this.send(a) });
+      if (a.type === 'ankan') buttons.push({ label: `暗槓 ${tileName(a.tile)}`, kind: 'call', onClick: () => this.send(a) });
+      if (a.type === 'kakan') buttons.push({ label: `加槓 ${tileName(a.tile)}`, kind: 'call', onClick: () => this.send(a) });
+    }
+    this.hud.actions(buttons);
+    this.view.setInteractive(true, acts.filter(a => a.type === 'discard').map(a => a.tile));
+    if (fresh) this.hud.tip(buttons.length ? '' : '輪到你出牌');
+    this.canTsumo = acts.some(a => a.type === 'tsumo');
+    this.advice = discardAdvice(roundFromView(this.v), this.mySeat);
+    if (fresh) sfx.yourTurn();
+  }
+
+  discard(t) {
+    const v = this.v;
+    if (!v || v.phase !== 'turn' || v.turn !== this.mySeat) return;
+    if (!v.actions.some(a => a.type === 'discard' && a.tile === t)) return;
+    this.hud.tip('');
+    this.view.setInteractive(false);
+    this.send({ type: 'discard', tile: t });
+  }
+
+  myClaim(acts) {
+    const v = this.v;
+    const coach = this.settings.coach;
+    const rl = roundFromView(v);
+    const now = coach ? shantenAfterCall(rl, this.mySeat, { type: 'pass' }) : 0;
+    const hint = a => {
+      if (!coach || a.type === 'hu' || a.type === 'pass') return '';
+      const after = shantenAfterCall(rl, this.mySeat, a);
+      return `<small class="${after < now ? 'good' : 'meh'}">→ ${shantenText(after)}</small>`;
+    };
+    const label = {
+      hu: () => '胡', pon: a => `碰${hint(a)}`, kan: a => `槓${hint(a)}`, pass: () => '過',
+      chi: a => `吃 <small>${[a.tile, a.tile + 1, a.tile + 2].map(tileName).join('')}</small>${hint(a)}`,
+    };
+    const kind = { hu: 'hu', pass: 'pass' };
+    this.view.setInteractive(false);
+    this.hud.actions(acts.map(a => ({ label: label[a.type](a), kind: kind[a.type] || 'call', onClick: () => this.send(a) })));
+    const from = this.meta.names[v.claim.from];
+    this.hud.tip(`${from} 打出 ${tileName(v.claim.tile)}${v.claim.kind === 'robkan' ? '（加槓）' : ''}`);
+    this.claimCoach = coach && !acts.some(a => a.type === 'hu') ? `現在 ${shantenText(now)}，吃碰之後手牌會變小，想清楚再決定` : '';
+  }
+
+  // ---------- 教學提示 ----------
+  refreshCoach() {
+    const v = this.v;
+    if (!v || !this.settings.coach || v.phase === 'end') {
+      this.view.setHint(null);
+      this.hud.coach('');
+      return;
+    }
+    if (this.advice) {
+      const best = this.advice[0];
+      this.view.setHint(best.tile);
+      this.hud.coach(this.canTsumo ? '可以<b>自摸</b>了！' : `建議 ${describeDiscard(best).replace(/^打 (\S+)/, '打 <b>$1</b>')}`);
+      return;
+    }
+    this.view.setHint(null);
+    if ((v.phase === 'claim' || v.phase === 'robkan') && v.actions.length && this.claimCoach) return this.hud.coach(this.claimCoach);
+    const w = currentWaits(roundFromView(v), this.mySeat);
+    if (!w) return this.hud.coach('');
+    if (w.shanten === 0) {
+      const list = w.waits.map(x => `${tileName(x.tile)}(${x.left})`).join('、');
+      this.hud.coach(`聽牌中：<b>${list || '已經沒牌可等了'}</b>`);
+    } else this.hud.coach(`目前 ${shantenText(w.shanten)}`);
+  }
+
+  onHover(t) {
+    this.hud.tip(t != null ? tileName(t) : '');
+    if (!this.advice || !this.settings.coach) return;
+    if (t == null) return this.refreshCoach();
+    const info = this.advice.find(x => x.tile === t);
+    if (!info) return;
+    const isBest = info.tile === this.advice[0].tile;
+    this.hud.coach(`${isBest ? '建議 ' : ''}${describeDiscard(info).replace(/⚠️ 危險/, '<span class="warn">⚠️ 危險</span>')}`);
+    const now = performance.now();
+    const lin = this.linSeat();
+    if (info.danger >= 0.35 && lin != null && now - this.dangerAt > DANGER_COOLDOWN) {
+      this.dangerAt = now;
+      this.localSay(lin, 'danger', 'nervous');
+    }
+  }
+
+  /** 林老師在桌上（是電腦）的話，他的相對座位 */
+  linSeat() {
+    const i = this.meta?.faces.indexOf('lin');
+    return i >= 0 ? i : null;
+  }
+
+  localSay(absSeat, situation, expr) {
+    const text = this.localLines.pick('lin', situation);
+    this.say(absSeat, text, expr, false);
+  }
+
+  checkPraise() {
+    const v = this.v;
+    if (this.praised || !this.settings.coach || v.phase === 'end' || v.turn === this.mySeat && v.phase === 'turn') return;
+    const lin = this.linSeat();
+    if (lin == null) return;
+    const w = currentWaits(roundFromView(v), this.mySeat);
+    if (w && w.shanten === 0) {
+      this.praised = true;
+      setTimeout(() => this.localSay(lin, 'praise', 'proud'), 400);
+    }
+  }
+
+  // ---------- 倒數 ----------
+  tickTimer() {
+    const v = this.v;
+    const mine = v && v.actions && v.actions.length && this.deadline && v.phase !== 'end';
+    this.hud.timer(mine ? Math.ceil((this.deadline - performance.now()) / 1000) : null);
+  }
+
+  // ---------- 事件 ----------
+  event(ev) {
+    const R = k => this.rel(k);
+    switch (ev.type) {
+      case 'discard': sfx.discard(); break;
+      case 'draw': if (ev.seat === this.mySeat) sfx.draw(); break;
+      case 'meld':
+        this.hud.shout(R(ev.seat), MELD_SHOUT[ev.meldType]);
+        sfx.call(ev.n);
+        break;
+      case 'flower': this.hud.shout(R(ev.seat), '補花'); sfx.flower(); break;
+      case 'kakanDeclare': this.hud.shout(R(ev.seat), '槓！'); break;
+      case 'end': {
+        const r = ev.result;
+        this.view.setInteractive(false);
+        this.hud.actions([]);
+        if (r.type !== 'win') {
+          for (let k = 0; k < 4; k++) this.hud.shout(k, '流局');
+          sfx.drawGame();
+          break;
+        }
+        const w = R(r.winner);
+        this.hud.shout(w, r.special || (r.selfDraw ? '自摸！' : '胡！'), 'big');
+        this.hud.celebrate(w, w === 0);
+        if (w === 0) sfx.win(true);
+        else if (r.from === this.mySeat) { sfx.win(false); setTimeout(() => sfx.lose(), 900); }
+        else sfx.win(false);
+        break;
+      }
+    }
+  }
+
+  say(k, text, expr, sticky) {
+    const r = this.rel(k);
+    if (expr) this.hud.setExpr(r, expr, sticky ? 0 : 3200);
+    if (text && this.settings.talk) this.hud.say(r, text);
+  }
+
+  expr(k, expr, ms) { this.hud.setExpr(this.rel(k), expr, ms); }
+
+  sticker(from, to, id) {
+    if (!this.settings.stickers) return;
+    const st = STICKERS.find(s => s.id === id);
+    if (st) this.hud.throwSticker(this.rel(from), this.rel(to), st);
+  }
+
+  result(p) {
+    this.view.setInteractive(false);
+    this.hud.actions([]);
+    this.hud.coach('');
+    this.hud.showResult({ ...p, onNext: this.next ? () => this.next() : null });
+  }
+
+  final(p) {
+    this.hud.showFinal({ ...p, onAgain: this.again ? () => this.again() : null });
+  }
+}

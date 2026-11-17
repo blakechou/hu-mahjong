@@ -229,3 +229,37 @@ body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit
 /* 對家在畫面最上方：喊聲改到名牌右邊，才不會被切掉 */
 .tag.seat2 .bubble { left: calc(100% + 10px); bottom: auto; top: 50%; transform: translate(0, -50%) scale(.7); }
 .tag.seat2 .bubble.show { transform: translate(0, -50%) scale(1); }
+
+/* 開頭選單 */
+.namebox { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 0 14px; font-weight: 700; color: #6b5640; }
+.card input { font-size: 16px; padding: 8px 10px; border-radius: 10px; border: 2px solid #c9b48a; background: #fffaf0; color: var(--ink); width: 9em; font-family: var(--sans); }
+.mp { display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+.mp .btn { font-size: 17px; padding: 9px 18px; }
+.joinrow { display: flex; gap: 6px; }
+.joinrow input { width: 6.5em; text-transform: lowercase; }
+.mp-note { font-size: 12px; color: #8a6a3a; margin: 10px 0 0; }
+.tag:not(.has-face) .face { display: none; }
+
+/* 大廳 */
+.roomcode { color: var(--red); letter-spacing: .12em; font-family: ui-monospace, monospace; }
+.share { display: flex; gap: 6px; margin: 6px 0 14px; }
+.share input { flex: 1; width: auto; font-size: 13px; }
+.share .btn { font-size: 15px; padding: 6px 12px; }
+.seats { list-style: none; padding: 0; margin: 0 0 16px; text-align: left; }
+.seats li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; background: #efe2c2; margin-bottom: 6px; }
+.seats li.ai { opacity: .65; }
+.seats .w { font-family: var(--serif); font-weight: 900; color: var(--red); }
+.seats b { flex: 1; }
+.seats small { color: #6b5640; }
+.wait { color: #8a6a3a; font-weight: 700; }
+.card .leave { margin-top: 10px; font-size: 15px; padding: 7px 18px; }
+.notice .msg { font-size: 18px; font-weight: 700; margin: 8px 0 18px; }
+
+/* 倒數 */
+.timer {
+  position: absolute; right: max(12px, env(safe-area-inset-right)); bottom: calc(var(--hand-h) + 66px);
+  background: rgba(30,16,8,.85); color: var(--gold); font-weight: 900; font-size: 18px; padding: 4px 12px; border-radius: 999px;
+  font-family: var(--serif);
+}
+.timer.hidden { display: none; }
+.timer.urgent { color: #fff; background: var(--red); animation: bounce .5s infinite; }

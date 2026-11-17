@@ -3,7 +3,22 @@ import { rankDiscards, visibleCounts } from '../ai/ai.js';
 import { shanten, ukeire } from '../core/hand.js';
 import { toCounts, tileName } from '../core/tiles.js';
 
-const COACH = { bigHand: 0.3, call: 0.5, defense: 0.75 };
+/**
+ * 從「某家看得到的牌局」（Round.viewFor）做出 AI／提示用的牌局物件。
+ * 連線時玩家手上只有自己的視角，所以提示只用看得到的資訊。
+ */
+export function roundFromView(v) {
+  return {
+    players: v.players.map(P => ({ hand: P.hand || [], melds: P.melds, discards: P.discards, flowers: P.flowers })),
+    dealer: v.dealer,
+    roundWind: v.roundWind,
+    claims: v.claim,
+    setsNeeded(p) { return 5 - this.players[p].melds.length; },
+    seatWind(p) { return (p - v.dealer + 4) % 4; },
+  };
+}
+
+export const COACH = { bigHand: 0.3, call: 0.5, defense: 0.75 };
 
 export const shantenText = s => (s < 0 ? '胡牌' : s === 0 ? '聽牌' : `${s} 向聽`);
 

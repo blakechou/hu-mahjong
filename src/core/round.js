@@ -408,11 +408,12 @@ export class Round {
       players: this.players.map((P, i) => ({
         hand: i === seat || this.phase === 'end' ? P.hand.slice() : null,
         handCount: P.hand.length,
-        melds: P.melds.map(m => (m.type === 'ankan' && i !== seat && this.phase !== 'end' ? { type: 'ankan', tiles: [null, null, null, null] } : m)),
+        melds: P.melds.map(m => (m.type === 'ankan' && i !== seat && this.phase !== 'end' ? { type: 'ankan', tiles: [null, null, null, null] } : { ...m, tiles: m.tiles.slice() })),
         discards: P.discards.slice(),
         flowers: P.flowers.slice(),
       })),
       actions: this.legalActions(seat),
+      claim: this.claims ? { tile: this.claims.tile, from: this.claims.from, kind: this.claims.kind } : null,
       result: this.result,
     };
   }
