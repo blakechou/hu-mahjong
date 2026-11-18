@@ -250,7 +250,7 @@ export class TableHost {
         break;
       case 'draw':
         // 摸到什麼只有自己知道
-        this.each((s, k) => s.event({ type: 'draw', seat: ev.seat, tile: k === ev.seat ? ev.tile : null }));
+        this.each((s, k) => s.event({ type: 'draw', seat: ev.seat, fromTail: !!ev.fromTail, tile: k === ev.seat ? ev.tile : null }));
         break;
       case 'meld': {
         this.pauseUntil = performance.now() + AFTER_CALL_DELAY;

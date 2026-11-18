@@ -34,6 +34,7 @@ async function boot() {
   };
   apply(hud.settings);
   hud.onUi = kind => sfx[kind]?.();
+  hud.onSortHand = () => view.sortHand();
   document.addEventListener('pointerdown', () => sfx.unlock(), { capture: true });
   view.onFrame = () => hud.placeTags(k => view.seatScreenPos(k), view.hudH);
   hud.setHudHeight(view.hudH);

@@ -167,6 +167,8 @@ export class PlayerUI {
   }
 
   roundStart() {
+    this.view.sortHand();
+    this.view.meldCounts = [0, 0, 0, 0];
     this.diceShown = false;
     this.view.clearDice();
     this.hud.hideResult();
@@ -181,6 +183,8 @@ export class PlayerUI {
   state(v, meta) {
     this.v = v;
     this.meta = meta;
+    this.extraHead = 0;
+    this.extraTail = 0;
     // 動畫播放中：先存起來，播完再畫
     if (this.busy) return;
     this.mySeat = meta.mySeat;
@@ -346,8 +350,18 @@ export class PlayerUI {
     }
     if (this.busy) return;
     switch (ev.type) {
-      case 'discard': sfx.discard(); break;
-      case 'draw': if (ev.seat === this.mySeat) sfx.draw(); break;
+      case 'discard': sfx.discard(0.28); break;
+      case 'draw': {
+        if (ev.seat === this.mySeat) sfx.draw();
+        // 從牌墩飛一張到那家手上；連續補花時自己累加已經拿走的張數
+        const v = this.v;
+        if (v && v.dice) {
+          const head = v.wallHead + (this.extraHead || 0), tail = v.wallTail + (this.extraTail || 0);
+          this.view.drawFly(this.rotateView(v), R(ev.seat), ev.fromTail, head, tail);
+          if (ev.fromTail) this.extraTail = (this.extraTail || 0) + 1; else this.extraHead = (this.extraHead || 0) + 1;
+        }
+        break;
+      }
       case 'meld':
         this.hud.shout(R(ev.seat), MELD_SHOUT[ev.meldType]);
         sfx.call(ev.n);

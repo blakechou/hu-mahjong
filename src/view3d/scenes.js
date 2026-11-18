@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { FONT } from './tileFaces.js';
 
 export const SCENES = [
+  { id: 'plain', name: '素雅茶室' },
   { id: 'shop', name: '柑仔店' },
   { id: 'arcade', name: '騎樓' },
   { id: 'temple', name: '廟口夜市' },
@@ -39,11 +40,11 @@ function label(ctx, text, x, y, size, color, stroke) {
 
 // ---------- 地板 ----------
 const terrazzo = () => tex(512, 512, (ctx, w, h) => {
-  ctx.fillStyle = '#b9b1a3'; ctx.fillRect(0, 0, w, h);
-  const colors = ['#7d746a', '#d8d0c2', '#5e5850', '#a7442f', '#e8e2d6', '#3f6b5a'];
-  for (let i = 0; i < 2600; i++) {
+  ctx.fillStyle = '#8c857a'; ctx.fillRect(0, 0, w, h);
+  const colors = ['#7f786e', '#958e83', '#867f74', '#8e7a6c'];
+  for (let i = 0; i < 1400; i++) {
     ctx.fillStyle = colors[i % colors.length];
-    const r = 1 + Math.random() * 4;
+    const r = 1 + Math.random() * 2.5;
     ctx.beginPath(); ctx.ellipse(Math.random() * w, Math.random() * h, r, r * (0.5 + Math.random() * 0.6), Math.random() * 3, 0, Math.PI * 2); ctx.fill();
   }
   // 磨石子的銅條分隔線
@@ -54,13 +55,13 @@ const terrazzo = () => tex(512, 512, (ctx, w, h) => {
 const checker = () => tex(256, 256, (ctx, w, h) => {
   const n = 4, c = w / n;
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    ctx.fillStyle = (x + y) % 2 ? '#efe6d6' : '#a9322b';
+    ctx.fillStyle = (x + y) % 2 ? '#a99d89' : '#8d5b50';
     ctx.fillRect(x * c, y * c, c, c);
   }
   ctx.strokeStyle = 'rgba(80,60,50,0.35)'; ctx.lineWidth = 2;
   for (let i = 0; i <= n; i++) { ctx.beginPath(); ctx.moveTo(i * c, 0); ctx.lineTo(i * c, h); ctx.moveTo(0, i * c); ctx.lineTo(w, i * c); ctx.stroke(); }
-  noise(ctx, w, h, 14);
-}, 14);
+  noise(ctx, w, h, 8);
+}, 7);
 
 const asphalt = () => tex(512, 512, (ctx, w, h) => {
   ctx.fillStyle = '#3a2f2c'; ctx.fillRect(0, 0, w, h);
@@ -69,6 +70,26 @@ const asphalt = () => tex(512, 512, (ctx, w, h) => {
   ctx.setLineDash([60, 40]);
   ctx.beginPath(); ctx.moveTo(0, h * 0.8); ctx.lineTo(w, h * 0.8); ctx.stroke();
 }, 4);
+
+// 深色木地板（素雅）
+const woodFloor = () => tex(512, 512, (ctx, w, h) => {
+  const plank = 64;
+  for (let y = 0; y < h; y += plank) {
+    ctx.fillStyle = (y / plank) % 2 ? '#3b2a1f' : '#36261c';
+    ctx.fillRect(0, y, w, plank);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, y, w, 2);
+    const off = ((y / plank) % 3) * 170;
+    ctx.fillRect((off + 200) % w, y, 2, plank);
+  }
+  noise(ctx, w, h, 6);
+}, 6);
+
+const plainWall = () => tex(512, 256, (ctx, w, h) => {
+  ctx.fillStyle = '#5a4a3c'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#3e3026'; ctx.fillRect(0, h * 0.62, w, h * 0.38);
+  ctx.fillStyle = '#2e231b'; ctx.fillRect(0, h * 0.62, w, 6);
+  noise(ctx, w, h, 5);
+}, 0);
 
 // ---------- 牆 ----------
 const shopWall = () => tex(1024, 512, (ctx, w, h) => {
@@ -175,7 +196,7 @@ const templeWall = () => tex(1024, 512, (ctx, w, h) => {
 }, 0);
 
 // ---------- 組合 ----------
-function walls(group, map, tint = 0xffffff) {
+function walls(group, map, tint = 0x9a9a9a) {
   const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.9, color: tint });
   const back = new THREE.Mesh(new THREE.PlaneGeometry(72, 36), mat);
   back.position.set(0, FLOOR_Y + 18, -17);
@@ -189,7 +210,7 @@ function walls(group, map, tint = 0xffffff) {
 }
 
 function floor(group, map) {
-  const f = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), new THREE.MeshStandardMaterial({ map, roughness: 0.85 }));
+  const f = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), new THREE.MeshStandardMaterial({ map, roughness: 0.9, color: 0x8a8a8a }));
   f.rotation.x = -Math.PI / 2;
   f.position.y = FLOOR_Y;
   f.receiveShadow = true;
@@ -230,7 +251,7 @@ export function buildScene(id) {
   }
   if (id === 'temple') {
     floor(group, asphalt());
-    walls(group, templeWall(), 0xbbbbcc);
+    walls(group, templeWall(), 0x8a8a99);
     for (const [x, z] of [[-14, -14], [-7, -15], [0, -15.5], [7, -15], [14, -14], [-24, -2], [24, -2]]) lantern(group, x, 10, z, 0.9);
     for (const x of [-12, 12]) {
       const l = new THREE.PointLight(0xff5a2a, 40, 40, 1.6);
@@ -239,7 +260,12 @@ export function buildScene(id) {
     }
     return { group, background: 0x0b1230, hemi: [0x8090c0, 0x402020, 0.75], warm: 1.6 };
   }
+  if (id === 'plain') {
+    floor(group, woodFloor());
+    walls(group, plainWall(), 0xffffff);
+    return { group, background: 0x1c1410, hemi: [0xfff3dd, 0x3a2a1e, 0.95], warm: 0.9 };
+  }
   floor(group, terrazzo());
   walls(group, shopWall());
-  return { group, background: 0x3a2618, hemi: [0xfff3dd, 0x5a3a26, 1.1], warm: 0.9 };
+  return { group, background: 0x3a2618, hemi: [0xfff3dd, 0x5a3a26, 1.0], warm: 0.9 };
 }

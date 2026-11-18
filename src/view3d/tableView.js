@@ -23,14 +23,14 @@ const geoFront = new RoundedBoxGeometry(TW, TH, FRONT_D, 2, R);
 const geoBack = new RoundedBoxGeometry(TW, TH, BACK_D, 2, R);
 const geoFace = new THREE.PlaneGeometry(TW - 2 * R + 0.02, TH - 2 * R + 0.02);
 // 牌的材質：象牙白與牌背都有一層亮光漆
-const ivoryMat = new THREE.MeshPhysicalMaterial({ color: 0xf3ecd9, roughness: 0.4, clearcoat: 0.45, clearcoatRoughness: 0.25 });
+const ivoryMat = new THREE.MeshPhysicalMaterial({ color: 0xe6dcc3, roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.3 });
 const backMat = new THREE.MeshPhysicalMaterial({ color: 0x1f7a55, roughness: 0.3, clearcoat: 0.9, clearcoatRoughness: 0.15 });
 const backFaceMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.3, clearcoat: 0.9, clearcoatRoughness: 0.15 });
 const faceMats = new Map();
 
 function faceMat(t, renderer) {
   // 牌面不上亮光漆：反光會讓花色看起來霧霧的
-  if (!faceMats.has(t)) faceMats.set(t, new THREE.MeshStandardMaterial({ map: faceTexture(t, renderer), roughness: 0.6, envMapIntensity: 0.25 }));
+  if (!faceMats.has(t)) faceMats.set(t, new THREE.MeshStandardMaterial({ map: faceTexture(t, renderer), roughness: 0.7, envMapIntensity: 0.15, color: 0xeeeeee }));
   return faceMats.get(t);
 }
 
@@ -84,7 +84,7 @@ export class TableView {
     r.outputColorSpace = THREE.SRGBColorSpace;
     // Neutral 色調：保留顏色的飽和度，不會像 ACES 那樣把紅綠洗淡
     r.toneMapping = THREE.NeutralToneMapping;
-    r.toneMappingExposure = 1.0;
+    r.toneMappingExposure = 0.88;
     container.appendChild(r.domElement);
     // 柔和的環境反射，讓牌面與木頭有光澤
     const pmrem = new THREE.PMREMGenerator(r);
@@ -95,7 +95,7 @@ export class TableView {
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
 
     this.scene.environment = this.envMap;
-    this.scene.environmentIntensity = 0.45;
+    this.scene.environmentIntensity = 0.28;
     this.hud = new THREE.Scene();
     this.hud.environment = this.envMap;
     this.hud.environmentIntensity = 0.2;
@@ -146,16 +146,18 @@ export class TableView {
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.renderer.setAnimationLoop(now => this.frame(now));
+    // 分頁在背景時瀏覽器會暫停畫面更新；用計時器讓動畫照樣跑完，牌局才不會卡住
+    setInterval(() => { const t = performance.now(); if (t - (this.lastNow || 0) > 300) this.frame(t); }, 200);
   }
 
   buildLights() {
-    this.hemi = new THREE.HemisphereLight(0xfff3dd, 0x3a2a1e, 0.9);
+    this.hemi = new THREE.HemisphereLight(0xfff3dd, 0x3a2a1e, 0.75);
     this.scene.add(this.hemi);
     // 桌子上方的燈泡（暖色）
     this.warm = new THREE.PointLight(0xffc27a, 60, 40, 1.4);
     this.warm.position.set(0, 13, 0);
     this.scene.add(this.warm);
-    const d = new THREE.DirectionalLight(0xffffff, 1.6);
+    const d = new THREE.DirectionalLight(0xfff6ea, 1.15);
     d.position.set(-7, 20, 11);
     d.castShadow = true;
     d.shadow.mapSize.set(2048, 2048);
@@ -259,7 +261,8 @@ export class TableView {
     this.hemi.color.set(sc.hemi[0]);
     this.hemi.groundColor.set(sc.hemi[1]);
     this.hemi.intensity = sc.hemi[2];
-    this.warm.intensity = 60 * sc.warm;
+    this.warm.intensity = 32 * sc.warm;
+    this.scene.fog = new THREE.Fog(sc.background, 34, 80);
   }
 
   drawPlate(s) {
@@ -312,7 +315,7 @@ export class TableView {
     const vfov = THREE.MathUtils.degToRad(cam.fov);
     const tanV = Math.tan(vfov / 2) * (availH / h);
     const tanH = Math.tan(vfov / 2) * (w / h);
-    const half = w < h ? 12.6 : 14.0;
+    const half = w < h ? 12.4 : 13.4;
     const dist = Math.max(half / tanH, (half * 0.82) / tanV);
     const elev = THREE.MathUtils.degToRad(w < h ? 68 : 56);
     const target = new THREE.Vector3(0, 0, w < h ? 0.4 : 1.2);
@@ -350,12 +353,15 @@ export class TableView {
         if (isLast) {
           this.lastDiscardMesh = m;
           this.marker.visible = true;
-          if (fresh) this.tween(m.position, 'y', LIE_Y + 2.2, LIE_Y, 220);
+          if (fresh) this.animDiscard(m, k);
         }
       });
-      // 副露：從右邊往左排
+      // 副露：從右邊往左排；新亮出來的那組從桌子中間滑過來
       let x = 11.6;
       const mz = HAND_Z;
+      this.meldCounts = this.meldCounts || [0, 0, 0, 0];
+      const prevMelds = Math.min(this.meldCounts[k], P.melds.length);
+      this.meldCounts[k] = P.melds.length;
       for (let mi = P.melds.length - 1; mi >= 0; mi--) {
         const meld = P.melds[mi];
         const tiles = meld.tiles;
@@ -365,6 +371,7 @@ export class TableView {
           m.rotation.x = hidden ? Math.PI / 2 : -Math.PI / 2;
           x -= TW / 2;
           m.position.set(x, LIE_Y, mz);
+          if (mi >= prevMelds && s.phase !== 'end') this.slideIn(m, new THREE.Vector3(0, 1.6, 4.5), j * 40);
           x -= TW / 2;
           g.add(m);
         }
@@ -388,7 +395,12 @@ export class TableView {
         for (let i = 0; i < n; i++) {
           const m = makeTile(reveal ? P.hand[i] : null, this.renderer);
           const px = right - width + i * TW * 1.03 + TW / 2;
-          if (reveal) { m.rotation.x = -Math.PI / 2; m.position.set(px, LIE_Y, HAND_Z); }
+          if (reveal) {
+            m.rotation.x = -Math.PI / 2;
+            m.position.set(px, LIE_Y, HAND_Z);
+            // 剛結束：手牌往前倒下攤開
+            if (this.prevPhase !== 'end') this.tipOver(m, i * 25);
+          }
           else m.position.set(px, TH / 2, HAND_Z + 0.1);
           g.add(m);
         }
@@ -396,6 +408,69 @@ export class TableView {
     });
     this.renderWall(s);
     this.buildHand(s);
+    this.prevPhase = s.phase;
+  }
+
+  // ---------- 牌的動畫 ----------
+  /** 打出去的牌：從那家手邊拋物線飛到牌河，邊飛邊從立著轉成躺平 */
+  animDiscard(m, seatRel) {
+    const to = m.position.clone();
+    const from = seatRel === 0 ? new THREE.Vector3(0, 1.4, TABLE_HALF + 0.5) : new THREE.Vector3(0, TH / 2, HAND_Z - 0.4);
+    const r0 = seatRel === 0 ? -0.6 : 0;
+    m.position.copy(from);
+    m.rotation.x = r0;
+    this.animate(300, t => {
+      const e = 1 - Math.pow(1 - t, 3);
+      m.position.lerpVectors(from, to, e);
+      m.position.y += Math.sin(Math.PI * t) * 1.4;
+      m.rotation.x = r0 + (-Math.PI / 2 - r0) * e;
+      m.rotation.z = (1 - e) * 0.35;
+    }, () => { m.position.copy(to); m.rotation.set(-Math.PI / 2, 0, 0); this.onLand?.(); });
+  }
+
+  /** 從 from（同一家的座標）滑到現在的位置 */
+  slideIn(m, from, delay = 0) {
+    const to = m.position.clone();
+    m.position.copy(from);
+    m.visible = delay === 0;
+    setTimeout(() => {
+      m.visible = true;
+      this.animate(320, t => {
+        const e = 1 - Math.pow(1 - t, 3);
+        m.position.lerpVectors(from, to, e);
+        m.position.y += Math.sin(Math.PI * t) * 0.8;
+      }, () => m.position.copy(to));
+    }, delay);
+  }
+
+  /** 立著的牌往前倒下（結束時攤牌） */
+  tipOver(m, delay) {
+    const to = m.position.clone();
+    m.rotation.x = 0;
+    m.position.y = TH / 2;
+    setTimeout(() => this.animate(260, t => {
+      const e = t * t;
+      m.rotation.x = -Math.PI / 2 * e;
+      m.position.y = TH / 2 + (to.y - TH / 2) * e;
+    }, () => { m.rotation.x = -Math.PI / 2; m.position.copy(to); }), delay);
+  }
+
+  /** 摸牌：從牌墩飛到那家手上（head／tail 是摸之前已經被拿走幾張） */
+  drawFly(s, seatRel, fromTail, head, tail) {
+    if (!s.dice) return;
+    const info = this.breakInfo(s);
+    let g, layer;
+    if (fromTail) {
+      g = ((info.n - 1 - Math.floor(tail / 2)) % 72 + 72) % 72;
+      layer = tail % 2 ? 0 : 1;
+    } else {
+      g = (info.n + Math.floor(head / 2)) % 72;
+      layer = head % 2 ? 0 : 1;
+    }
+    const { pos, seat } = this.stackPos(g, layer, info);
+    // 先把牌墩上那張藏起來，畫面才不會有兩張
+    this.wallKey = '';
+    this.flyTile(pos, this.handPos(seatRel), 300, seat * Math.PI / 2);
   }
 
   // ---------- 牌墩 ----------
@@ -569,74 +644,145 @@ export class TableView {
     tiles.forEach(m => this.fx.remove(m));
   }
 
+  // ---------- 自己的手牌（畫面下方） ----------
+  /** 照自訂順序排；新進來的牌插在數字順序該在的位置 */
+  orderTiles(base) {
+    const sorted = base.slice().sort((a, b) => a - b);
+    if (!this.customOrder) return sorted;
+    const left = new Map();
+    for (const t of base) left.set(t, (left.get(t) || 0) + 1);
+    const out = [];
+    for (const t of this.customOrder) {
+      if (left.get(t) > 0) { out.push(t); left.set(t, left.get(t) - 1); }
+    }
+    for (const t of sorted) {
+      if (!(left.get(t) > 0)) continue;
+      left.set(t, left.get(t) - 1);
+      // 放在同一種花色裡數字該在的位置；手上沒有同花色就放最後
+      const suit = x => (x < 27 ? Math.floor(x / 9) : x >= 31 ? 4 : 3);
+      let j = -1;
+      out.forEach((x, i) => { if (suit(x) === suit(t) && x <= t) j = i; });
+      if (j >= 0) out.splice(j + 1, 0, t);
+      else {
+        const k = out.findIndex(x => suit(x) === suit(t));
+        if (k >= 0) out.splice(k, 0, t); else out.push(t);
+      }
+    }
+    this.customOrder = out.slice();
+    return out;
+  }
+
+  /** 理牌：回到依序排列 */
+  sortHand() {
+    this.customOrder = null;
+    this.drawnMergedKey = null;
+    if (this.state) this.buildHand(this.state);
+  }
+
   buildHand(s) {
+    const me = s.players[0];
+    const old = new Map();
+    for (const m of this.handTiles) old.set(m.userData.key, m);
     this.handGroup.clear();
     this.handTiles = [];
-    const me = s.players[0];
-    if (!me.hand) return;
-    let tiles = me.hand.slice();
+    if (!me.hand) { this.layoutHand(); return; }
+    const tiles = me.hand.slice();
     let drawn = null;
     if (s.drawn != null && s.phase === 'turn' && s.turn === 0) {
-      // 摸進來的牌放最右邊，其他排好
       const i = tiles.lastIndexOf(s.drawn);
       tiles.splice(i, 1);
       drawn = s.drawn;
     }
-    tiles.sort((a, b) => a - b);
-    const list = tiles.map(t => ({ t, drawn: false }));
-    if (drawn != null) list.push({ t: drawn, drawn: true });
-    // 新摸進來的牌從上面滑下來
     const dk = drawn != null ? `${s.remaining}:${drawn}` : '';
-    if (dk && dk !== this.drawKey) this.tween(this, 'drawOffset', 1, 0, 260, () => this.layoutHand());
+    // 玩家把摸進來的牌拖進手牌裡了：當成一般手牌排
+    if (drawn != null && this.drawnMergedKey === dk) { tiles.push(drawn); drawn = null; }
+    const list = this.orderTiles(tiles).map(t => ({ t, drawn: false }));
+    if (drawn != null) list.push({ t: drawn, drawn: true });
+    const freshDraw = dk && dk !== this.drawKey;
     this.drawKey = dk;
+    const seen = new Map();
     list.forEach(({ t, drawn: d }) => {
-      const m = makeTile(t, this.renderer);
-      m.rotation.x = -0.32;
+      const n = (seen.get(t) || 0) + 1;
+      seen.set(t, n);
+      const key = d ? `${t}#d` : `${t}#${n}`;
+      let m = old.get(key) || (d ? null : old.get(`${t}#d`));
+      if (m) old.delete(m.userData.key);
+      const isNew = !m;
+      if (!m) {
+        m = makeTile(t, this.renderer);
+        m.rotation.x = -0.32;
+      }
+      m.userData.key = key;
+      m.userData.tile = t;
       m.userData.drawn = d;
+      m.userData.fresh = isNew;
       this.handGroup.add(m);
       this.handTiles.push(m);
     });
+    if (freshDraw) {
+      const m = this.handTiles.at(-1);
+      m.userData.fresh = true;
+      m.userData.dropIn = true;
+    }
     if (this.selected >= this.handTiles.length) this.selected = -1;
     this.layoutHand();
   }
 
+  /** 算每張手牌該在的位置（真正移動在 frame() 裡慢慢靠過去） */
   layoutHand() {
     if (!this.handTiles) return;
     const tw = this.tw;
-    const n = this.handTiles.length;
-    const hasDrawn = this.handTiles.some(m => m.userData.drawn);
+    const drag = this.drag?.moved ? this.drag : null;
+    // 拖曳中：被拖的牌不佔位置，插入點空出一格
+    let order = this.handTiles.slice();
+    if (drag) {
+      order = order.filter(m => m !== drag.mesh);
+      order.splice(drag.insert ?? order.length, 0, drag.mesh);
+    }
+    const n = order.length;
+    const hasDrawn = order.some(m => m.userData.drawn && m !== drag?.mesh);
     const gap = hasDrawn ? tw * 0.4 : 0;
     const rowH = TH * tw * 0.92;
     const y0 = tw * 0.45 + (TH * tw) / 2;
-    // 兩排時：上排放前半，下排放後半（摸進來的牌在下排最右邊）
     const rows = [];
     if (this.rows === 2) {
       const plain = n - (hasDrawn ? 1 : 0);
       const top = Math.ceil(plain / 2);
-      rows.push(this.handTiles.slice(0, top), this.handTiles.slice(top));
-    } else rows.push(this.handTiles);
-    const widest = Math.max(...rows.map(r => r.length * tw + (r.some(m => m.userData.drawn) ? gap : 0)));
+      rows.push(order.slice(0, top), order.slice(top));
+    } else rows.push(order);
+    const widest = Math.max(...rows.map(r => r.length * tw + (r.some(m => m.userData.drawn && m !== drag?.mesh) ? gap : 0)));
     const left = (this.W - widest) / 2 + tw / 2;
+    this.slots = [];
     rows.forEach((row, ri) => {
       let x = left;
       const y = y0 + (rows.length - 1 - ri) * rowH;
       row.forEach(m => {
         const i = this.handTiles.indexOf(m);
-        if (m.userData.drawn) x += gap;
+        if (m.userData.drawn && m !== drag?.mesh) x += gap;
         m.scale.setScalar(tw);
-        let up = i === this.selected ? 0.34 : i === this.hover && this.canClick(i) ? 0.2 : 0;
-        if (m.userData.drawn) up += (this.drawOffset || 0) * 1.6;
-        m.position.set(x, y + up * tw, ri * 10);
+        const up = i === this.selected ? 0.34 : i === this.hover && this.canClick(i) && !drag ? 0.2 : 0;
+        m.userData.tx = x;
+        m.userData.ty = y + up * tw;
+        m.userData.tz = ri * 10;
+        this.slots.push({ x, y });
+        if (m.userData.fresh) {
+          // 新出現的牌直接放好；剛摸進來的那張從上面落下
+          m.userData.fresh = false;
+          m.position.set(x, m.userData.dropIn ? y + tw * 2.2 : y, ri * 10);
+          m.userData.dropIn = false;
+        }
         x += tw;
       });
     });
-    // 建議打的牌：同一種牌有好幾張時，指最右邊那張
-    const hm = this.hintTile == null ? null : [...this.handTiles].reverse().find(m => m.userData.tile === this.hintTile);
-    this.hintMarker.visible = !!hm && this.interactive;
-    if (hm) {
-      this.hintMarker.scale.setScalar(tw);
-      this.hintMarker.position.set(hm.position.x, hm.position.y + TH * tw * 0.5 + tw * 0.32, 100);
+    if (drag) {
+      drag.mesh.userData.tx = drag.px;
+      drag.mesh.userData.ty = drag.py;
+      drag.mesh.userData.tz = 200;
     }
+    const hm = this.hintTile == null || drag ? null : [...this.handTiles].reverse().find(m => m.userData.tile === this.hintTile);
+    this.hintMarker.visible = !!hm && this.interactive;
+    this.hintMesh = hm;
+    if (hm) this.hintMarker.scale.setScalar(tw);
   }
 
   setHint(tile) { this.hintTile = tile; this.layoutHand(); }
@@ -657,8 +803,12 @@ export class TableView {
 
   bindPointer() {
     const el = this.renderer.domElement;
-    const pick = e => {
+    const toHud = e => {
       const rect = el.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: rect.height - (e.clientY - rect.top), rect };
+    };
+    const pick = e => {
+      const { rect } = toHud(e);
       const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       this.raycaster.setFromCamera(ndc, this.hudCam);
       const hits = this.raycaster.intersectObjects(this.handTiles, true);
@@ -667,18 +817,67 @@ export class TableView {
       while (o.parent && !this.handTiles.includes(o)) o = o.parent;
       return this.handTiles.indexOf(o);
     };
+    el.addEventListener('pointerdown', e => {
+      const i = pick(e);
+      if (i < 0) return;
+      this.drag = { mesh: this.handTiles[i], i, sx: e.clientX, sy: e.clientY, moved: false };
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* 不支援就算了 */ }
+    });
     el.addEventListener('pointermove', e => {
+      const d = this.drag;
+      if (d) {
+        if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 8) {
+          d.moved = true;
+          this.selected = -1;
+          el.style.cursor = 'grabbing';
+        }
+        if (d.moved) {
+          const p = toHud(e);
+          d.px = p.x;
+          d.py = p.y + this.tw * 0.3;
+          // 插到最近的空位
+          const others = this.handTiles.filter(m => m !== d.mesh);
+          let best = others.length, bestDist = Infinity;
+          this.layoutHand();
+          (this.slots || []).forEach((sl, idx) => {
+            const dist = Math.abs(sl.x - p.x) + Math.abs(sl.y - p.y) * 0.6;
+            if (dist < bestDist) { bestDist = dist; best = idx; }
+          });
+          d.insert = Math.min(best, others.length);
+          this.layoutHand();
+        }
+        return;
+      }
       if (e.pointerType === 'touch') return;
       const i = pick(e);
       if (i !== this.hover) {
         this.hover = i;
-        el.style.cursor = i >= 0 && this.canClick(i) ? 'pointer' : 'default';
+        el.style.cursor = i >= 0 ? (this.canClick(i) ? 'pointer' : 'grab') : 'default';
         this.layoutHand();
         this.onHover?.(i >= 0 ? this.handTiles[i].userData.tile : null);
       }
     });
-    el.addEventListener('pointerleave', () => { this.hover = -1; this.layoutHand(); this.onHover?.(null); });
+    const endDrag = () => {
+      const d = this.drag;
+      this.drag = null;
+      el.style.cursor = 'default';
+      if (!d?.moved) return false;
+      // 排出新的順序；摸進來的牌被拖的話變成一般手牌，沒被拖就留在最右邊
+      const others = this.handTiles.filter(m => m !== d.mesh);
+      const insert = Math.min(d.insert ?? others.length, others.length);
+      others.splice(insert, 0, d.mesh);
+      const drawnMesh = this.handTiles.find(m => m.userData.drawn);
+      if (d.mesh === drawnMesh) { this.drawnMergedKey = this.drawKey; d.mesh.userData.drawn = false; }
+      const rest = others.filter(m => !m.userData.drawn);
+      this.customOrder = rest.map(m => m.userData.tile);
+      this.handTiles = drawnMesh && drawnMesh !== d.mesh ? [...rest, drawnMesh] : rest;
+      this.layoutHand();
+      return true;
+    };
+    el.addEventListener('pointercancel', () => { this.drag = null; this.layoutHand(); });
+    el.addEventListener('pointerleave', () => { if (!this.drag) { this.hover = -1; this.layoutHand(); this.onHover?.(null); } });
     el.addEventListener('pointerup', e => {
+      if (endDrag()) return;
       const i = pick(e);
       if (i < 0) { this.selected = -1; this.layoutHand(); return; }
       if (!this.canClick(i)) return;
@@ -729,7 +928,21 @@ export class TableView {
       this.lastDiscardMesh.getWorldPosition(p);
       this.marker.position.set(p.x, p.y + 1.1 + Math.sin(now / 220) * 0.15, p.z);
     }
-    if (this.hintMarker.visible) this.hintMarker.rotation.y = now / 500;
+    // 手牌慢慢靠到目標位置（拖曳、理牌、摸牌都會很順）
+    const dt = Math.min(0.05, (now - (this.lastNow || now)) / 1000);
+    this.lastNow = now;
+    const k = 1 - Math.exp(-dt * 18);
+    for (const m of this.handTiles) {
+      const u = m.userData;
+      if (u.tx == null) continue;
+      m.position.x += (u.tx - m.position.x) * k;
+      m.position.y += (u.ty - m.position.y) * k;
+      m.position.z = u.tz;
+    }
+    if (this.hintMarker.visible && this.hintMesh) {
+      this.hintMarker.rotation.y = now / 500;
+      this.hintMarker.position.set(this.hintMesh.position.x, this.hintMesh.position.y + TH * this.tw * 0.5 + this.tw * 0.32, 300);
+    }
     const r = this.renderer;
     r.clear();
     r.render(this.scene, this.camera);

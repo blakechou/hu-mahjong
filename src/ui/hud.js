@@ -8,7 +8,7 @@ import { Confetti } from './effects.js';
 
 const SETTINGS_KEY = 'hu-mahjong-settings';
 export function loadSettings() {
-  const def = { coach: true, talk: true, stickers: true, sound: true, scene: 'shop', skin: 'jade' };
+  const def = { coach: true, talk: true, stickers: true, sound: true, scene: 'plain', skin: 'jade' };
   try { return { ...def, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch (e) { return def; }
 }
 function saveSettings(v) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(v)); } catch (e) { /* 無痕模式存不了就算了 */ } }
@@ -45,6 +45,7 @@ export class Hud {
         <button class="btn close">好</button>
       </div>
       <button class="iconbtn sticker-btn" title="嗆聲">💬</button>
+      <button class="iconbtn sort-btn" title="理牌：照順序排好">理</button>
       <div class="panel stickers hidden">
         <div class="grid">${STICKERS.map(st => `<button class="stk" data-id="${st.id}"><span>${st.icon}</span>${st.text}</button>`).join('')}</div>
         <div class="targets hidden"><span>丟給：</span>${[1, 2, 3].map(k => `<button class="btn tgt" data-seat="${k}">${names[k]}</button>`).join('')}</div>
@@ -83,6 +84,7 @@ export class Hud {
     this.settings = loadSettings();
     this.bindSettings();
     this.bindStickers();
+    this.root.querySelector('.sort-btn').onclick = () => this.onSortHand?.();
   }
 
   bindSettings() {
