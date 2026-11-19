@@ -8,6 +8,8 @@ import { discardAdvice, describeDiscard, currentWaits, shantenAfterCall, shanten
 
 const MELD_SHOUT = { chi: '吃！', pon: '碰！', minkan: '槓！', kakan: '槓！', ankan: '暗槓！' };
 const DANGER_COOLDOWN = 12000;
+// 每家聲音的左右位置（相對座位）：自己正前方、下家右邊、對家正前方、上家左邊
+const PAN = [0, 0.55, 0, -0.55];
 
 export class PlayerUI {
   /**
@@ -153,7 +155,7 @@ export class PlayerUI {
       const who = step === 17 ? v.dealer : (v.dealer + (j % 4)) % 4;
       const rv = this.rotateView(base);
       this.view.dealGrab(rv, j * 4, step === 17 ? 1 : 4, this.rel(who));
-      sfx.draw();
+      sfx.draw(PAN[this.rel(who)], 0.8);
       await this.view.wait(INTRO.dealStep);
       this.renderRaw(this.preDeal(v, step), meta);
     }
@@ -350,9 +352,9 @@ export class PlayerUI {
     }
     if (this.busy) return;
     switch (ev.type) {
-      case 'discard': sfx.discard(0.28); break;
+      case 'discard': sfx.discard(0.28, PAN[R(ev.seat)]); break;
       case 'draw': {
-        if (ev.seat === this.mySeat) sfx.draw();
+        if (ev.seat === this.mySeat) sfx.draw(0, 1); else sfx.draw(PAN[R(ev.seat)], 0.45);
         // 從牌墩飛一張到那家手上；連續補花時自己累加已經拿走的張數
         const v = this.v;
         if (v && v.dice) {
@@ -364,9 +366,9 @@ export class PlayerUI {
       }
       case 'meld':
         this.hud.shout(R(ev.seat), MELD_SHOUT[ev.meldType]);
-        sfx.call(ev.n);
+        sfx.call(ev.n, PAN[R(ev.seat)]);
         break;
-      case 'flower': this.hud.shout(R(ev.seat), '補花'); sfx.flower(); break;
+      case 'flower': this.hud.shout(R(ev.seat), '補花'); sfx.flower(PAN[R(ev.seat)]); break;
       case 'kakanDeclare': this.hud.shout(R(ev.seat), '槓！'); break;
       case 'end': {
         const r = ev.result;

@@ -262,7 +262,9 @@ export class TableView {
     this.hemi.groundColor.set(sc.hemi[1]);
     this.hemi.intensity = sc.hemi[2];
     this.warm.intensity = 32 * sc.warm;
-    this.scene.fog = new THREE.Fog(sc.background, 34, 80);
+    // 霧從桌子後面才開始，只讓遠處的牆、地板淡掉
+    const d = this.camDist || 30;
+    this.scene.fog = new THREE.Fog(sc.background, d + 14, d + 60);
   }
 
   drawPlate(s) {
@@ -315,10 +317,13 @@ export class TableView {
     const vfov = THREE.MathUtils.degToRad(cam.fov);
     const tanV = Math.tan(vfov / 2) * (availH / h);
     const tanH = Math.tan(vfov / 2) * (w / h);
-    const half = w < h ? 12.4 : 13.4;
-    const dist = Math.max(half / tanH, (half * 0.82) / tanV);
+    // 鏡頭只框牌墩、手牌那一圈，木框邊緣可以切掉一點，桌上的牌就大
+    const half = w < h ? 11.7 : 11.6;
+    const dist = Math.max(half / tanH, (half * 0.93) / tanV);
+    this.camDist = dist;
+    if (this.scene.fog) { this.scene.fog.near = dist + 14; this.scene.fog.far = dist + 60; }
     const elev = THREE.MathUtils.degToRad(w < h ? 68 : 56);
-    const target = new THREE.Vector3(0, 0, w < h ? 0.4 : 1.2);
+    const target = new THREE.Vector3(0, 0, w < h ? 0.4 : 0.5);
     cam.position.set(0, Math.sin(elev) * dist, Math.cos(elev) * dist).add(target);
     cam.lookAt(target);
     cam.setViewOffset(w, h, 0, this.hudH / 2, w, h);
